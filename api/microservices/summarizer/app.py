@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from transformers import pipeline
+from models.ModelRegistry import model_registry
 
 app = FastAPI()
 
@@ -8,11 +8,12 @@ app = FastAPI()
 class SummarizerRequest(BaseModel):
     text: str
 
-# Cargar el modelo
-summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+@app.on_event("startup")
+async def startup_event():
+    await model_registry.load_models()
 
 @app.post("/summarize")
-def summarize(data: SummarizerRequest):
+def summarizer_endpint(data: SummarizerRequest):
     text = data.text.strip()
 
     if not text:
@@ -36,12 +37,10 @@ def summarize(data: SummarizerRequest):
     min_len = max(int(estimated_tokens * min_pct), 30)
     max_len = min(int(estimated_tokens * max_pct), 512)
 
-    summary = summarizer(
-        text,
-        min_length=min_len,
-        max_length=max_len,
-        do_sample=False
-    )[0]["summary_text"]
+    model = model_registry.get("summarizer")
 
-    # Devuelve el texto resumido
-    return {"resumen": summary}
+    try:
+        summary = model.summarize(text, min_len=min_len, max_len=max_len)
+        return {"resumen": summary}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

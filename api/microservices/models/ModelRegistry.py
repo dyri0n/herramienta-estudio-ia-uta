@@ -1,5 +1,5 @@
-
-from models import FlanT5Text2TextGenerator
+from models.FlanT5Text2TextGenerator import FlanT5Text2TextGenerator
+from models.summarizerModel import SummarizerModel
 import torch
 
 class ModelRegistry:
@@ -9,7 +9,8 @@ class ModelRegistry:
     async def load_models(self):
         self.models["generator"] = await load_generator_model()
         self.models["classifier"] = await load_classifier_model()
-
+        self.models["summarizer"] = await load_summarizer_model()
+        
     def clear(self):
         self.models.clear()
 
@@ -23,6 +24,14 @@ async def load_generator_model():
         tokenizer="google/flan-t5-large",
         uses_cuda=torch.cuda.is_available()
     )
+
+
+async def load_summarizer_model():
+    return SummarizerModel(
+        model_name="facebook/bart-large-cnn",
+        uses_cuda=torch.cuda.is_available()
+    )
+
 
 async def load_classifier_model():
     return """

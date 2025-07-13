@@ -6,10 +6,16 @@ import httpx
 class GeneratorPromptRequest(BaseModel):
     context: str
 
+class SummarizerPromptRequest(BaseModel):
+    text: str
+
 client: httpx.AsyncClient = None
 
 T2T_MODEL_PORT = "8001"
 T2T_MODEL_URL = f"http://localhost:{T2T_MODEL_PORT}"
+
+SUMMARIZER_MODEL_PORT = "8003"
+SUMMARIZER_MODEL_URL = f"http://localhost:{SUMMARIZER_MODEL_PORT}"
 
 #CLFY_MODEL_PORT = "8002"
 #CLFY_MODEL_URL = f"http://localhost:{CLFY_MODEL_PORT}"
@@ -61,6 +67,21 @@ async def generate(request: GeneratorPromptRequest):
         raise HTTPException(status_code=503, detail="T2T Model service unavailable")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"Model error: {e}")
+    
+
+@app.post("/summarizer/")
+async def summarize(request: SummarizerPromptRequest):
+    try:
+        response = await client.post(
+            f"{SUMMARIZER_MODEL_URL}/summarize",
+            json=request.model_dump(mode="json")
+        )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError:
+        raise HTTPException(status_code=503, detail="Summarizer service unavailable")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=500, detail=f"Summarizer error: {e}")
 
 #
 #==========================================================

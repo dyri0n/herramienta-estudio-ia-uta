@@ -1,0 +1,32 @@
+{
+    "name": "QGQA",
+    "microservice": "qgqa",
+    "ip": "0.0.0.0",
+    "port": 8001,
+    "description": "A service for registering and managing QGQA (Question Generation and Question Answer) tasks.",
+    "version": "1.0.0",
+    "endpoints": [
+        {
+            "path": "/generate_question",
+            "method": "POST",
+            "description": "Generate a question based on the provided context.",
+            "request_body": {
+                "context": "string"
+            },
+            "response": {
+                "response": "string"
+            }
+        },
+        {
+            "path": "/generate_answer",
+            "method": "POST",
+            "description": "Generate an answer based on the provided question.",
+            "request_body": {
+                "question": "string"
+            },
+            "response": {
+                "response": "string"
+            }
+        }
+    ]
+}

@@ -1,0 +1,27 @@
+{
+    "name": "Summarizer",
+    "microservice": "summarizer",
+    "ip": "0.0.0.0",
+    "port": 8002,
+    "description": "A service for summarizing text documents.",
+    "version": "1.0.0",
+    "endpoints": [
+        {
+            "method": "POST",
+            "path": "/summarize",
+            "description": "Summarize a text document",
+            "request": {
+                "type": "application/json",
+                "body": {
+                    "text": "string"
+                }
+            },
+            "response": {
+                "status_code": 200,
+                "body": {
+                    "detail": "string"
+                }
+            }
+        }
+    ]
+}

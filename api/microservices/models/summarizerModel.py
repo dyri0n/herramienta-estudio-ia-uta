@@ -3,7 +3,7 @@ import transformers
 
 
 class SummarizerModel:
-    def init(self, model_name: str, uses_cuda: bool = False):
+    def __init__(self, model_name: str, uses_cuda: bool = False):
         self.model = pipeline(
             "summarization",
             model=model_name,
@@ -18,7 +18,7 @@ class SummarizerModel:
 
     def summarize(self, text: str, min_len: int = 30, max_len: int = 150) -> str:
         kwargs = {"do_sample": False}
-        version = tuple(map(int, transformers.version.split(".")[:2]))
+        version = tuple(map(int, transformers.__version__.split(".")[:2]))
 
         if version >= (4, 30):
             kwargs["min_new_tokens"] = min_len
@@ -28,14 +28,14 @@ class SummarizerModel:
             kwargs["max_length"] = max_len
 
         if len(text.split()) <= 800:
-            result = self.model(text, kwargs)
+            result = self.model(text, **kwargs)
             return result[0]["summary_text"]
 
         chunks = self._split_text(text)
         partial_summaries = []
 
         for chunk in chunks:
-            chunk_summary = self.model(chunk, kwargs)[0]["summary_text"]
+            chunk_summary = self.model(chunk, **kwargs)[0]["summary_text"]
             partial_summaries.append(chunk_summary)
 
         combined_summary = " ".join(partial_summaries)

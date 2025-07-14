@@ -18,11 +18,16 @@ class GQA(BaseModel):
     answer: str
     quality: float | None = None
 
+class TranslatePromptRequest(BaseModel):
+    text: str
 
 # RUTAS HARDCODEADAS
 # TODO: MOVER A APIGATEWAY PARA GESTIONAR LOADBALANCING
 T2T_MODEL_PORT = "8001"
 T2T_MODEL_URL = f"http://localhost:{T2T_MODEL_PORT}"
+
+TRANSLATE_MODEL_PORT = "8002"
+TRANSLATE_MODEL_URL = f"http://localhost:{TRANSLATE_MODEL_PORT}"
 
 SUMMARIZER_MODEL_PORT = "8003"
 SUMMARIZER_MODEL_URL = f"http://localhost:{SUMMARIZER_MODEL_PORT}"
@@ -171,6 +176,54 @@ async def summarize(request: SummarizerPromptRequest):
             status_code=503, detail="Summarizer service unavailable")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"Summarizer error: {e}")
+
+
+@app.post("/translator/detectar_idioma/")
+async def detect_language(request: TranslatePromptRequest):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{TRANSLATE_MODEL_URL}/detectar_idioma",
+                json={"text": request.text}
+            )
+            response.raise_for_status()
+            return response.json()  # ejemplo {"language": "es"}
+    except httpx.RequestError:
+        raise HTTPException(status_code=503, detail="Translator service unavailable")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=500, detail=f"Translator error: {e}")
+
+
+@app.post("/translator/traducir_a_ingles/")
+async def translate_to_english(request: TranslatePromptRequest):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{TRANSLATE_MODEL_URL}/traducir_a_ingles",
+                json={"text": request.text}
+            )
+            response.raise_for_status()
+            return response.json()  # ejemplo {"translated_text": "This is a translation."}
+    except httpx.RequestError:
+        raise HTTPException(status_code=503, detail="Translator service unavailable")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=500, detail=f"Translator error: {e}")
+
+
+@app.post("/translator/traducir_a_espanol/")
+async def translate_to_spanish(request: TranslatePromptRequest):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{TRANSLATE_MODEL_URL}/traducir_a_espanol",
+                json={"text": request.text}
+            )
+            response.raise_for_status()
+            return response.json()  # ejemplo {"translated_text": "Esta es una traducción."}
+    except httpx.RequestError:
+        raise HTTPException(status_code=503, detail="Translator service unavailable")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=500, detail=f"Translator error: {e}")
 
 #
 # ==========================================================

@@ -10,3 +10,7 @@ fastapi[standard]
 pydantic
 httpx
 uvicorn[standard]
+
+
+# en un entorno real se tienen que separar las dependencias de los archivos
+# pero por ahora estan todos unidos

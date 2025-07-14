@@ -1,3 +1,5 @@
+import re
+import unicodedata
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from models.ModelRegistry import model_registry
@@ -14,7 +16,11 @@ async def startup_event():
 
 @app.post("/summarize")
 def summarizer_endpint(data: SummarizerRequest):
-    text = data.text.strip()
+    text = data.text
+    text = unicodedata.normalize("NFKC", text)
+    text = text.replace("\r", " ").replace("\n", " ")
+    text = re.sub(r"\s+", " ", text)
+    text = text.strip()
 
     if not text:
         raise HTTPException(status_code=400, detail="Texto vacío")
@@ -33,7 +39,7 @@ def summarizer_endpint(data: SummarizerRequest):
     else:
         min_pct, max_pct = 0.3, 0.5
 
-    estimated_tokens = int(word_count * 1.3)
+    estimated_tokens = int(word_count * 1.3) 
     min_len = max(int(estimated_tokens * min_pct), 30)
     max_len = min(int(estimated_tokens * max_pct), 512)
 

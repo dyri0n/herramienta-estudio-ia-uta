@@ -20,16 +20,21 @@ class TranslateModel:
     @staticmethod
     def detect_language(text: str) -> str:
         text_lower = text.lower()
-        words = text_lower.split()  # tokenización simple por espacio
+        words = text_lower.split()
         scores = {}
 
         for lang in stopwords.fileids():
+            if lang == "hinglish":
+                continue  # saltar hinglish siempre
             stops = set(stopwords.words(lang))
             common = [w for w in words if w in stops]
             scores[lang] = len(common)
 
-        # Umbral mínimo para confiar en detección
-        best_lang = max(scores, key=scores.get) if scores else "unknown"
+        if not scores:
+            return "unknown"
+
+        best_lang = max(scores, key=scores.get)
         if scores[best_lang] < 3:
             return "unknown"
+
         return best_lang

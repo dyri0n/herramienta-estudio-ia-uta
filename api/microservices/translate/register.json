@@ -1,0 +1,43 @@
+{
+    "name": "Translate Microservice",
+    "microservice": "translate",
+    "ip": "0.0.0.0",
+    "port": 8003,
+    "description": "A service for translating text between different languages.",
+    "version": "1.0.0",
+    "endpoints": [
+        {
+            "method": "POST",
+            "path": "/detectar_idioma",
+            "description": "Detects the language of the provided text.",
+            "request_body": {
+                "text": "string"
+            },
+            "response": {
+                "language": "string"
+            }
+        },
+        {
+            "method": "POST",
+            "path": "/traducir_a_ingles",
+            "description": "Translates the provided text to English.",
+            "request_body": {
+                "text": "string"
+            },
+            "response": {
+                "translation": "string"
+            }
+        },
+        {
+            "method": "POST",
+            "path": "/traducir_a_espanol",
+            "description": "Translates the provided text to Spanish.",
+            "request_body": {
+            "text": "string"
+            },
+            "response": {
+                "translation": "string"
+            }
+        }
+    ]
+}

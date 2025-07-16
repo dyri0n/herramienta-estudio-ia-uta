@@ -10,9 +10,11 @@ app = FastAPI()
 class SummarizerRequest(BaseModel):
     text: str
 
+
 @app.on_event("startup")
 async def startup_event():
     await model_registry.load_models()
+
 
 @app.post("/summarize")
 def summarizer_endpint(data: SummarizerRequest):
@@ -24,7 +26,7 @@ def summarizer_endpint(data: SummarizerRequest):
 
     if not text:
         raise HTTPException(status_code=400, detail="Texto vacío")
-    
+
     word_count = len(text.split())
 
     if word_count < 30:

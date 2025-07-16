@@ -1,7 +1,9 @@
 from models.FlanT5Text2TextGenerator import FlanT5Text2TextGenerator
 from models.summarizerModel import SummarizerModel
 import torch
+from typing_extensions import deprecated
 
+@deprecated("no uses esto porfavor te lo ruego")
 class ModelRegistry:
     def __init__(self):
         self.models = {}
@@ -41,6 +43,5 @@ async def load_classifier_model():
         SU MICROSERVICIO DEBE SER IMPLEMENTADO EN ESTE
         MISMO DIRECTORIO (ver ejemplo de microservicio MICROSERVICE_FlanT5T25G.py)
     """
-
 
 model_registry = ModelRegistry()

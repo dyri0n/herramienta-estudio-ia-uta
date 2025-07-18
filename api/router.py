@@ -96,7 +96,7 @@ def _chunk_and_overlap_text(
     return chunks
 
 
-QGQA_MODEL_NAME = 'google/flan-t5-large'
+QGQA_MODEL_NAME = 'google/flan-t5-small'
 
 MODEL_CONFIG = {
     "google/flan-t5-large": {
@@ -113,7 +113,7 @@ MODEL_CONFIG = {
     },
     "google/flan-t5-small": {
         "max_tokens": 256,
-        "recommended_output_tokens": 256
+        "recommended_output_tokens": 100
     },
 }
 
@@ -181,7 +181,7 @@ def chunk_by_sentences(
         # Agregar oraciones mientras no se pase del límite de tokens
         while j < len(sentences):
             sentence = sentences[j]
-            sentence_tokens = tokenizer.encode(sentence)
+            sentence_tokens = tokenizer.encode(sentence, add_special_tokens=False)
             if token_count + len(sentence_tokens) > max_chunk_len:
                 break
             current_chunk.append(sentence)
@@ -191,10 +191,10 @@ def chunk_by_sentences(
             j += 1
 
         # Si el chunk está muy corto y no es el primero, lo fusionamos con el anterior
-        if token_count < min_chunk_tokens and chunks:
-            chunks[-1] += " " + " ".join(current_chunk)
-        else:
-            chunks.append(" ".join(current_chunk).strip())
+        #if token_count < min_chunk_tokens and chunks:
+        #    chunks[-1] += " " + " ".join(current_chunk)
+        #else:
+        chunks.append(" ".join(current_chunk).strip())
 
         i = max(i + 1, j - overlap_sentences)
 

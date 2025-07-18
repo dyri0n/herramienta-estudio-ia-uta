@@ -1,0 +1,21 @@
+# Para los modelos
+torch 
+torchvision 
+torchaudio 
+--index-url https://download.pytorch.org/whl/cu128 #cuda 12.8
+# oneliner
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+# revisar https://pytorch.org/get-started/locally/ por otras versiones de cuda
+nltk==3.9.1
+sentencepiece==0.2.0
+sacremoses==0.1.1
+transformers==4.53.2 
+# Para la API
+fastapi[standard]
+pydantic
+httpx
+uvicorn[standard]
+
+
+# en un entorno real se tienen que separar las dependencias de los archivos
+# pero por ahora estan todos unidos

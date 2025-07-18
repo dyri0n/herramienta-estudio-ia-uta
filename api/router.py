@@ -75,27 +75,22 @@ SUMMARIZER_MODEL_URL = f"http://localhost:{SUMMARIZER_MODEL_PORT}"
 # HELPER FUNCTIONS
 # ----------------
 
+class TokenizerWrapper:
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+        self.encode = self._encode
+        self.decode = self._decode
+
+    def _encode(self, text: str, *args, **kwargs):
+        return self.tokenizer.encode(text, *args, **kwargs)
+
+    def _decode(self, tokens: list[int], *args, **kwargs):
+        return self.tokenizer.decode(tokens, *args, **kwargs)
+
 DEFAULT_CHUNK_SIZE = 512
 DEFAULT_OVERLAP_PERCENTAGE = 1/4
 
-# Chunkeo por caracteres
-
-
-def _chunk_and_overlap_text(
-    text: str,
-    chunk_size: int = DEFAULT_CHUNK_SIZE,
-    overlap: int = int(DEFAULT_CHUNK_SIZE * DEFAULT_OVERLAP_PERCENTAGE)
-):
-    start = 0
-    chunks = []
-    while start < len(text):
-        end = min(start + chunk_size, len(text))
-        chunks.append(text[start:end])
-        start += chunk_size - overlap
-    return chunks
-
-
-QGQA_MODEL_NAME = 'google/flan-t5-small'
+QGQA_MODEL_NAME = 'google/flan-t5-large'
 
 MODEL_CONFIG = {
     "google/flan-t5-large": {
@@ -117,6 +112,23 @@ MODEL_CONFIG = {
 }
 
 
+# Chunkeo por caracteres
+
+
+def _chunk_and_overlap_text(
+    text: str,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    overlap: int = int(DEFAULT_CHUNK_SIZE * DEFAULT_OVERLAP_PERCENTAGE)
+):
+    start = 0
+    chunks = []
+    while start < len(text):
+        end = min(start + chunk_size, len(text))
+        chunks.append(text[start:end])
+        start += chunk_size - overlap
+    return chunks
+
+
 def split_into_sentences(text: str) -> list[str]:
     # Separación básica por oraciones usando puntuación
     splitted_text = re.split(r'(?<=[.!?])\s+', text.strip())
@@ -124,19 +136,19 @@ def split_into_sentences(text: str) -> list[str]:
     return splitted_text
 
 
-def count_tokens(text: str, tokenizer: Callable[[str], list[int]]) -> int:
-    return len(tokenizer.encode(text))
+def count_tokens(text: str, tokenizer: TokenizerWrapper) -> int:
+    return len(tokenizer.encode(text)) # type: ignore
 
 
 def chunk_by_tokens(
     text: str,
-    tokenizer: Callable[[str], list[int]],
+    tokenizer: TokenizerWrapper,
     max_input_tokens: int,
     max_output_tokens: int = 100,
     overlap_tokens: int = 50,
     min_chunk_tokens: int = 100
 ) -> list[str]:
-    tokens = tokenizer(text)
+    tokens = tokenizer.encode(text)
     chunks = []
     start = 0
     max_chunk_len = max_input_tokens - max_output_tokens
@@ -148,10 +160,10 @@ def chunk_by_tokens(
         # Si es el último chunk y queda muy corto, ajustamos hacia atrás
         if len(chunk_tokens) < min_chunk_tokens and chunks:
             # Pegamos lo que sobra al chunk anterior
-            chunks[-1] += " " + tokenizer.decode(chunk_tokens)  # type: ignore
+            chunks[-1] += " " + tokenizer.decode(chunk_tokens)  
             break
 
-        chunk_text = tokenizer.decode(chunk_tokens)  # type: ignore
+        chunk_text = tokenizer.decode(chunk_tokens)  
         chunks.append(chunk_text.strip())
 
         start += max_chunk_len - overlap_tokens
@@ -161,7 +173,7 @@ def chunk_by_tokens(
 
 def chunk_by_sentences(
     text: str,
-    tokenizer: Callable[[str], list[int]],
+    tokenizer: TokenizerWrapper,
     max_input_tokens: int,
     max_output_tokens: int = 100,
     overlap_sentences: int = 1,
@@ -243,7 +255,7 @@ async def generate(request: GeneratorPromptRequest):
 
         model_spec = MODEL_CONFIG[QGQA_MODEL_NAME]
 
-        tokenizer_hf = AutoTokenizer.from_pretrained(QGQA_MODEL_NAME)
+        tokenizer_hf = TokenizerWrapper(AutoTokenizer.from_pretrained(QGQA_MODEL_NAME))
 
         # Alternativa basada en tokens:
         # chunks = chunk_by_tokens(
@@ -261,7 +273,7 @@ async def generate(request: GeneratorPromptRequest):
             tokenizer=tokenizer_hf,
             max_input_tokens=model_spec["max_tokens"],
             max_output_tokens=model_spec["recommended_output_tokens"],
-            overlap_sentences=2,
+            overlap_sentences=6,
             min_chunk_tokens=model_spec["max_tokens"]-100
         )
 

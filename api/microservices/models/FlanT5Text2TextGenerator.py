@@ -16,7 +16,7 @@ class FlanT5Text2TextGenerator:
             device=0 if uses_cuda else -1
         )
 
-    def generate_question(self, context: str, max_length: int = 64) -> str:
+    def generate_question(self, context: str, max_length: int = 256) -> str:
         print("Generando pregunta...")
         print(f"Contexto {context}")
         prompt_q = f"Generate a question based on the following context: {context}"
@@ -57,6 +57,8 @@ class FlanT5Text2TextGenerator:
             "Answer:"
         )
 
+        print(f"Prompt: {prompt_a}")
+
         out_a = self.generator(
             prompt_a,
             # beam search
@@ -70,9 +72,13 @@ class FlanT5Text2TextGenerator:
             top_p=0.9,
         )
 
+        print(f"Output: {out_a}")
+
         if isinstance(out_a, list) and len(out_a) > 0 and "generated_text" in out_a[0]:
-            a_text = out_a[0]["generated_text"].strip()
+            a_text = out_a[0].get("generated_text", "").strip()
         else:
+            print(f"ERROR: {out_a!r}")
             raise RuntimeError(f"Formato inesperado de salida: {out_a!r}")
 
+        print(f"Respuesta generada: {a_text}")
         return a_text

@@ -23,8 +23,8 @@ model: dict[str, FlanT5Text2TextGenerator | None] = {
 async def lifespan(app: FastAPI):
     # Instanciar el modelo directamente aquí
     model["generator"] = FlanT5Text2TextGenerator(
-        model="google/flan-t5-large",
-        tokenizer="google/flan-t5-large",
+        model="google/flan-t5-small",
+        tokenizer="google/flan-t5-small",
         uses_cuda=torch.cuda.is_available()
     )
     yield

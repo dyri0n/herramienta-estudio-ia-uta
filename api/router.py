@@ -1,7 +1,13 @@
+import re
+from typing import Callable
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import httpx
+from transformers import AutoTokenizer
+
+from fastapi.middleware.cors import CORSMiddleware
+
 
 
 class GeneratorPromptRequest(BaseModel):
@@ -18,8 +24,10 @@ class GQA(BaseModel):
     answer: str
     quality: float | None = None
 
+
 class TranslatePromptRequest(BaseModel):
     text: str
+
 
 # RUTAS HARDCODEADAS
 # TODO: MOVER A APIGATEWAY PARA GESTIONAR LOADBALANCING
@@ -68,8 +76,10 @@ SUMMARIZER_MODEL_URL = f"http://localhost:{SUMMARIZER_MODEL_PORT}"
 # HELPER FUNCTIONS
 # ----------------
 
-DEFAULT_CHUNK_SIZE = 256
+DEFAULT_CHUNK_SIZE = 512
 DEFAULT_OVERLAP_PERCENTAGE = 1/4
+
+# Chunkeo por caracteres
 
 
 def _chunk_and_overlap_text(
@@ -85,6 +95,112 @@ def _chunk_and_overlap_text(
         start += chunk_size - overlap
     return chunks
 
+
+QGQA_MODEL_NAME = 'google/flan-t5-large'
+
+MODEL_CONFIG = {
+    "google/flan-t5-large": {
+        "max_tokens": 512,
+        "recommended_output_tokens": 100
+    },
+    "google/flan-t5-xl": {
+        "max_tokens": 4096,
+        "recommended_output_tokens": 200
+    },
+    "google/flan-t5-xxl": {
+        "max_tokens": 4096,
+        "recommended_output_tokens": 200
+    },
+    "google/flan-t5-small": {
+        "max_tokens": 256,
+        "recommended_output_tokens": 256
+    },
+}
+
+
+def split_into_sentences(text: str) -> list[str]:
+    # Separación básica por oraciones usando puntuación
+    splitted_text = re.split(r'(?<=[.!?])\s+', text.strip())
+    print(splitted_text)
+    return splitted_text
+
+
+def count_tokens(text: str, tokenizer: Callable[[str], list[int]]) -> int:
+    return len(tokenizer.encode(text))
+
+
+def chunk_by_tokens(
+    text: str,
+    tokenizer: Callable[[str], list[int]],
+    max_input_tokens: int,
+    max_output_tokens: int = 100,
+    overlap_tokens: int = 50,
+    min_chunk_tokens: int = 100
+) -> list[str]:
+    tokens = tokenizer(text)
+    chunks = []
+    start = 0
+    max_chunk_len = max_input_tokens - max_output_tokens
+
+    while start < len(tokens):
+        end = start + max_chunk_len
+        chunk_tokens = tokens[start:end]
+
+        # Si es el último chunk y queda muy corto, ajustamos hacia atrás
+        if len(chunk_tokens) < min_chunk_tokens and chunks:
+            # Pegamos lo que sobra al chunk anterior
+            chunks[-1] += " " + tokenizer.decode(chunk_tokens)  # type: ignore
+            break
+
+        chunk_text = tokenizer.decode(chunk_tokens)  # type: ignore
+        chunks.append(chunk_text.strip())
+
+        start += max_chunk_len - overlap_tokens
+
+    return chunks
+
+
+def chunk_by_sentences(
+    text: str,
+    tokenizer: Callable[[str], list[int]],
+    max_input_tokens: int,
+    max_output_tokens: int = 100,
+    overlap_sentences: int = 1,
+    min_chunk_tokens: int = 100
+) -> list[str]:
+    sentences = split_into_sentences(text)
+    chunks = []
+    i = 0
+    max_chunk_len = max_input_tokens - max_output_tokens
+
+    while i < len(sentences):
+        current_chunk = []
+        token_count = 0
+        j = i
+
+        # Agregar oraciones mientras no se pase del límite de tokens
+        while j < len(sentences):
+            sentence = sentences[j]
+            sentence_tokens = tokenizer.encode(sentence)
+            if token_count + len(sentence_tokens) > max_chunk_len:
+                break
+            current_chunk.append(sentence)
+            token_count += len(sentence_tokens)
+            print(sentence, token_count, max_chunk_len)
+            print(chunks)
+            j += 1
+
+        # Si el chunk está muy corto y no es el primero, lo fusionamos con el anterior
+        if token_count < min_chunk_tokens and chunks:
+            chunks[-1] += " " + " ".join(current_chunk)
+        else:
+            chunks.append(" ".join(current_chunk).strip())
+
+        i = max(i + 1, j - overlap_sentences)
+
+    return chunks
+
+
 # ---------
 # ENDPOINTS
 # ---------
@@ -99,6 +215,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000/"],  # Agrega tu dominio de frontend
+    allow_credentials=True,
+    allow_methods=[""],
+    allow_headers=[""],
+)
+
+# Se cambia dependiendo del modelo usado en backend
+
 
 @app.post("/generator/")
 async def generate(request: GeneratorPromptRequest):
@@ -112,7 +238,38 @@ async def generate(request: GeneratorPromptRequest):
         context_en: str = request.context  # Simulación
 
         # 3. Chunking del texto
-        chunks = _chunk_and_overlap_text(context_en)
+
+        # Chunkeo precario
+        # chunks = _chunk_and_overlap_text(context_en)
+
+        model_spec = MODEL_CONFIG[QGQA_MODEL_NAME]
+
+        tokenizer_hf = AutoTokenizer.from_pretrained(QGQA_MODEL_NAME)
+
+        # Alternativa basada en tokens:
+        # chunks = chunk_by_tokens(
+        #     text=context_en,
+        #     tokenizer=tokenizer,
+        #     max_input_tokens=model_spec["max_tokens"],
+        #     max_output_tokens=model_spec["recommended_output_tokens"],
+        #     overlap_tokens=50,
+        #     min_chunk_tokens=100
+        # )
+
+        # Alternativa basada en oraciones:
+        chunks = chunk_by_sentences(
+            text=context_en,
+            tokenizer=tokenizer_hf,
+            max_input_tokens=model_spec["max_tokens"],
+            max_output_tokens=model_spec["recommended_output_tokens"],
+            overlap_sentences=2,
+            min_chunk_tokens=model_spec["max_tokens"]-100
+        )
+
+        print("===== CHUNKS GENERADOS =====")
+        for idx, chunk in enumerate(chunks):
+            print(
+                f"[Chunk {idx+1} | Tokens: {count_tokens(chunk, tokenizer_hf)}]{chunk}")
 
         all_qas: list[GQA] = []
         async with httpx.AsyncClient() as client:
@@ -135,7 +292,7 @@ async def generate(request: GeneratorPromptRequest):
                         json={"context": chunk, "question": pregunta_generada})
                     resp.raise_for_status()
                     data = resp.json()
-                    respuesta_generada: str = data.get("respuesta", "")
+                    respuesta_generada: str = data.get("response", "")
                 except Exception as e:
                     respuesta_generada = f"Error al generar preguntas: {str(e)}"
 
@@ -189,7 +346,8 @@ async def detect_language(request: TranslatePromptRequest):
             response.raise_for_status()
             return response.json()  # ejemplo {"language": "es"}
     except httpx.RequestError:
-        raise HTTPException(status_code=503, detail="Translator service unavailable")
+        raise HTTPException(
+            status_code=503, detail="Translator service unavailable")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"Translator error: {e}")
 
@@ -203,9 +361,11 @@ async def translate_to_english(request: TranslatePromptRequest):
                 json={"text": request.text}
             )
             response.raise_for_status()
-            return response.json()  # ejemplo {"translated_text": "This is a translation."}
+            # ejemplo {"translated_text": "This is a translation."}
+            return response.json()
     except httpx.RequestError:
-        raise HTTPException(status_code=503, detail="Translator service unavailable")
+        raise HTTPException(
+            status_code=503, detail="Translator service unavailable")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"Translator error: {e}")
 
@@ -219,9 +379,11 @@ async def translate_to_spanish(request: TranslatePromptRequest):
                 json={"text": request.text}
             )
             response.raise_for_status()
-            return response.json()  # ejemplo {"translated_text": "Esta es una traducción."}
+            # ejemplo {"translated_text": "Esta es una traducción."}
+            return response.json()
     except httpx.RequestError:
-        raise HTTPException(status_code=503, detail="Translator service unavailable")
+        raise HTTPException(
+            status_code=503, detail="Translator service unavailable")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"Translator error: {e}")
 

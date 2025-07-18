@@ -1,6 +1,10 @@
 "use client"
 import { Brain, Zap } from "lucide-react"
-import DocumentUploader from "@/components/ui/DocumentUploader"
+import dynamic from 'next/dynamic'
+
+const DocumentUploader = dynamic(() => import('@/components/ui/DocumentUploader'), {
+  ssr: false,
+})
 import ServiceTabs from "@/components/ui/ServiceTabs"
 import ResultViewer from "@/components/ui/ResultViewer"
 import HistoryPanel from "@/components/ui/HistoryPanel"

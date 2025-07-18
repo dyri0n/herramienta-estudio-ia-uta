@@ -1,12 +1,11 @@
 import re
 from typing import Callable
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import httpx
 from transformers import AutoTokenizer
-
-from fastapi.middleware.cors import CORSMiddleware
 
 
 
@@ -215,14 +214,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# Configura CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000/"],  # Agrega tu dominio de frontend
+    allow_origins=["http://localhost:3000"],  # Agrega tu dominio de frontend
     allow_credentials=True,
-    allow_methods=[""],
-    allow_headers=[""],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
 # Se cambia dependiendo del modelo usado en backend
 
 

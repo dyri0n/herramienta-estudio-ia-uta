@@ -1,89 +1,143 @@
 "use client"
-import { MessageSquare, FileText, Languages } from "lucide-react"
+import { MessageSquare, FileText, Languages, Zap } from "lucide-react"
 import { useNLP } from "@/app/context/NLPContext"
+import { useState } from "react"  
 
 const services = [
   {
-    id: "questions" as const,
+    id: "questions",
     name: "Generación de Preguntas",
     description: "Genera preguntas relevantes del contenido",
     icon: MessageSquare,
     color: "text-blue-600",
+    endpoint: "/generator/",
+    requestBody: (content: string) => ({ context: content })
   },
   {
-    id: "summary" as const,
+    id: "summary",
     name: "Resumen de Texto",
     description: "Crea un resumen conciso del documento",
     icon: FileText,
     color: "text-green-600",
+    endpoint: "/summarizer/",
+    requestBody: (content: string) => ({ text: content })
   },
   {
-    id: "translation" as const,
+    id: "translation",
     name: "Traducción EN>ES",
     description: "Traduce el contenido del inglés al español",
     icon: Languages,
     color: "text-purple-600",
+    endpoint: "/translator/traducir_a_espanol/",
+    requestBody: (content: string) => ({ text: content })
   },
-]
+] as const;
 
 export default function ServiceTabs() {
-  const { state, dispatch } = useNLP()
+  const { state, dispatch } = useNLP();
+  const [error, setError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedService, setSelectedService] = useState<string>("questions");
+  
+  // Usa esta ruta si configuraste el proxy en Next.js
+  // const API_BASE_URL = "/api/proxy";
+  // O usa esta si configuraste CORS en el backend
+  const API_BASE_URL = "http://127.0.0.1:8000";
 
-  const handleServiceChange = (serviceId: "questions" | "summary" | "translation") => {
-    dispatch({ type: "SET_SELECTED_SERVICE", payload: serviceId })
-    dispatch({ type: "CLEAR_RESULTS" })
-  }
+  const handleServiceChange = (serviceId: string) => {
+    setSelectedService(serviceId);
+    dispatch({ type: "SET_SELECTED_SERVICE", payload: serviceId });
+  };
 
   const processDocument = async () => {
-    if (!state.currentDocument) return
+    if (!state.currentDocument?.content) {
+      setError('No hay documento cargado para procesar');
+      return;
+    }
 
-    dispatch({ type: "SET_PROCESSING", payload: true })
+    setError(null);
+    setIsProcessing(true);
 
-    // Simular procesamiento
-    setTimeout(() => {
-      const mockResult = {
-        id: Date.now().toString(),
-        documentId: state.currentDocument!.id,
-        service: state.selectedService,
-        result: generateMockResult(state.selectedService),
-        createdAt: new Date(),
-        format: "json" as const,
+    try {
+      const service = services.find(s => s.id === selectedService);
+      if (!service) throw new Error("Servicio no válido");
+
+      // Construir el cuerpo según el servicio
+      const requestBody = service.requestBody(state.currentDocument.content);
+      
+      console.log("Enviando solicitud a:", `${API_BASE_URL}${service.endpoint}`);
+      console.log("Cuerpo de la solicitud:", requestBody);
+
+      const response = await fetch(`${API_BASE_URL}${service.endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+        mode: 'cors'
+      });
+
+      // Verifica encabezados CORS
+      console.log("Encabezados de respuesta:");
+      response.headers.forEach((value, name) => {
+        console.log(`${name}: ${value}`);
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Error response text:", errorText);
+        
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { detail: errorText };
+        }
+        
+        throw new Error(errorData.detail || `Error ${response.status}`);
       }
 
-      dispatch({ type: "ADD_RESULT", payload: mockResult })
-      dispatch({ type: "SET_PROCESSING", payload: false })
-    }, 2000)
-  }
+      const result = await response.json();
+      console.log("Resultado recibido:", result);
 
-  const generateMockResult = (service: string) => {
-    switch (service) {
-      case "questions":
-        return {
-          questions: [
-            "¿Cuál es el tema principal del documento?",
-            "¿Qué conclusiones se pueden extraer?",
-            "¿Cuáles son los puntos clave mencionados?",
-          ],
-          keywords: ["análisis", "datos", "resultados", "conclusión"],
+      // Manejar diferentes formatos de respuesta según el servicio
+      let processedResult: any;
+      switch(service.id) {
+        case "questions":
+          // Para generador de preguntas, ahora esperamos un array de QA
+          processedResult = result.qas || [];
+          break;
+        case "summary":
+          // Para resumen, esperamos texto plano
+          processedResult = result.result || result;
+          break;
+        case "translation":
+          // Para traducción, esperamos texto traducido
+          processedResult = result.translated_text || result;
+          break;
+        default:
+          processedResult = result;
+      }
+
+      // Actualizar el documento en el contexto con el resultado
+      dispatch({
+        type: "UPDATE_DOCUMENT",
+        payload: {
+          id: state.currentDocument.id,
+          updates: {
+            [selectedService]: processedResult
+          }
         }
-      case "summary":
-        return {
-          summary:
-            "Este documento presenta un análisis detallado de los datos recopilados durante el estudio. Los resultados muestran tendencias significativas que apoyan las hipótesis iniciales.",
-          keywords: ["análisis", "datos", "tendencias", "hipótesis"],
-          wordCount: 45,
-        }
-      case "translation":
-        return {
-          originalText: "This document presents a detailed analysis...",
-          translatedText: "Este documento presenta un análisis detallado...",
-          keywords: ["documento", "análisis", "detallado"],
-          confidence: 0.95,
-        }
-      default:
-        return {}
+      });
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
+      setError(`Error al procesar: ${errorMessage}`);
+      console.error('Error completo en processDocument:', err);
+    } finally {
+      setIsProcessing(false);
     }
-  }
+  };
 
   return (
     <div className="space-y-6">
@@ -92,7 +146,7 @@ export default function ServiceTabs() {
       <div className="grid grid-cols-1 gap-4">
         {services.map((service) => {
           const Icon = service.icon
-          const isSelected = state.selectedService === service.id
+          const isSelected = selectedService === service.id
 
           return (
             <button
@@ -100,7 +154,9 @@ export default function ServiceTabs() {
               onClick={() => handleServiceChange(service.id)}
               className={`
                 p-4 rounded-lg border-2 text-left transition-all focus:outline-none focus:ring-2 focus:ring-primary-500
-                ${isSelected ? "border-primary-500 bg-primary-50" : "border-gray-200 hover:border-gray-300 bg-white"}
+                ${isSelected 
+                  ? "border-primary-500 bg-primary-50" 
+                  : "border-gray-200 hover:border-gray-300 bg-white"}
               `}
               disabled={!state.currentDocument}
               aria-pressed={isSelected}
@@ -108,7 +164,9 @@ export default function ServiceTabs() {
               <div className="flex items-start space-x-3">
                 <Icon className={`h-6 w-6 mt-1 ${service.color}`} />
                 <div className="flex-1">
-                  <h3 className={`font-medium ${isSelected ? "text-primary-900" : "text-gray-900"}`}>{service.name}</h3>
+                  <h3 className={`font-medium ${isSelected ? "text-primary-900" : "text-gray-900"}`}>
+                    {service.name}
+                  </h3>
                   <p className={`text-sm mt-1 ${isSelected ? "text-primary-700" : "text-gray-500"}`}>
                     {service.description}
                   </p>
@@ -120,28 +178,37 @@ export default function ServiceTabs() {
       </div>
 
       <button
-  onClick={processDocument}
-  disabled={!state.currentDocument || state.isProcessing}
-  className="
-    w-full py-3 px-4 rounded-lg font-medium 
-    transition-colors duration-200
-    focus:outline-none focus:ring-2 
-    focus:ring-ring focus:ring-offset-2
-    disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed
-    bg-primary text-primary-foreground 
-    hover:bg-primary/90 dark:hover:bg-primary/80
-    relative
-  "
->
-  {state.isProcessing ? (
-    <span className="inline-flex items-center justify-center gap-2">
-      <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
-      Procesando...
-    </span>
-  ) : (
-    "Procesar Documento"
-  )}
-</button>
+        onClick={processDocument}
+        disabled={!state.currentDocument || isProcessing}
+        className="
+          w-full py-3 px-4 rounded-lg font-medium 
+          transition-colors duration-200
+          focus:outline-none focus:ring-2 
+          focus:ring-ring focus:ring-offset-2
+          disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed
+          bg-primary text-primary-foreground 
+          hover:bg-primary/90 dark:hover:bg-primary/80
+          relative flex items-center justify-center
+        "
+      >
+        {isProcessing ? (
+          <>
+            <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></span>
+            Procesando...
+          </>
+        ) : (
+          <>
+            <Zap className="h-4 w-4 mr-2" />
+            Procesar Documento
+          </>
+        )}
+      </button>
+
+      {error && (
+        <div className="flex items-center space-x-2 text-red-600 bg-red-50 p-3 rounded-md">
+          <span className="text-sm">{error}</span>
+        </div>
+      )}
     </div>
   )
 }

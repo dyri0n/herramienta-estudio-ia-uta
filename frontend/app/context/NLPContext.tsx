@@ -4,12 +4,12 @@ import type React from "react"
 import { createContext, useContext, useReducer, type ReactNode } from "react"
 
 interface Document {
-  id: string
-  name: string
-  size: number
-  type: string
-  uploadedAt: Date
-  content?: string
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  content: string;
+  uploadedAt: Date;
 }
 
 interface NLPResult {

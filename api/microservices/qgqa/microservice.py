@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from models.FlanT5Text2TextGenerator import FlanT5Text2TextGenerator
 import torch
+from enum import Enum
 
 
 class QuestionGenerationRequest(BaseModel):
@@ -22,9 +23,16 @@ model: dict[str, FlanT5Text2TextGenerator | None] = {
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Instanciar el modelo directamente aquí
+    class FlanT5Model(str, Enum):
+        SMALL = "google/flan-t5-small"
+        LARGE = "google/flan-t5-large"
+        XL = "google/flan-t5-xl"
+
+    model_name = FlanT5Model.LARGE.value  # Cambia a SMALL o XL si es necesario
+
     model["generator"] = FlanT5Text2TextGenerator(
-        model="google/flan-t5-large",
-        tokenizer="google/flan-t5-large",
+        model=model_name,
+        tokenizer=model_name,
         uses_cuda=torch.cuda.is_available()
     )
     yield

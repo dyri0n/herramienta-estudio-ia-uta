@@ -5,7 +5,6 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import torch
 from models.summarizerModel import SummarizerModel
-from models.ModelRegistry import model_registry
 
 
 class SummarizerRequest(BaseModel):
@@ -29,6 +28,7 @@ async def lifespan(app: FastAPI):
     model["summarizer"] = None
 
 app = FastAPI(lifespan=lifespan)
+
 
 @app.post("/summarize")
 def summarizer_endpint(data: SummarizerRequest):

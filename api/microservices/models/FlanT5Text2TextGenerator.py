@@ -1,4 +1,5 @@
 from transformers.pipelines import pipeline
+import unicodedata
 import re
 
 
@@ -18,6 +19,9 @@ class FlanT5Text2TextGenerator:
 
     def generate_question(self, context: str, max_length: int = 256) -> str:
         print("Generando pregunta...")
+        context = self.proccess_input(context)
+        if not context:
+            raise ValueError("El contexto proporcionado está vacío o no es válido.")
         print(f"Contexto {context}")
         prompt_q = f"Generate a question based on the following context: {context}"
 
@@ -34,17 +38,32 @@ class FlanT5Text2TextGenerator:
 
         return q_text
 
-    # TODO: implementar en la pipeline de generacion de qa
+    import re
+
+
     def proccess_input(self, plain_text: str) -> str:
-        # Eliminar caracteres de control no imprimibles excepto saltos de línea
-        text = re.sub(
-            r'[^\x09\x0A\x0D\x20-\x7EáéíóúÁÉÍÓÚñÑüÜ]', '', plain_text)
-        # Reemplazar comillas dobles y simples por comillas estándar
-        text = text.replace('“', '"').replace(
-            '”', '"').replace("‘", "'").replace("’", "'")
-        # Opcional: reemplazar saltos de línea por espacios
-        # text = text.replace('\n', ' ')
-        return text
+        # Normalizar unicode a forma compuesta
+        text = unicodedata.normalize("NFKC", plain_text)
+
+        # Eliminar caracteres de control y no imprimibles
+        text = re.sub(r'[^\x20-\x7EáéíóúÁÉÍÓÚñÑüÜ]', ' ', text)
+
+        # Reemplazar comillas tipográficas por comillas normales
+        text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
+
+        # Eliminar saltos de línea, tabulaciones y comillas simples/dobles
+        text = text.replace('\n', ' ').replace('\t', ' ')
+        text = text.replace('"', '').replace("'", '')
+
+        # Eliminar otros caracteres que no quieras (ej. paréntesis, corchetes, etc.)
+        text = re.sub(r"[{}\[\]<>]", "", text)
+
+        # Eliminar espacios múltiples
+        text = re.sub(r'\s+', ' ', text)
+
+        # Trim final
+        return text.strip()
+
 
     def generate_answer(self, question: str, context: str, max_length: int = 64):
         print("Generando respuesta...")

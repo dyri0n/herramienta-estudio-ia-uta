@@ -1,19 +1,33 @@
+from contextlib import asynccontextmanager
 import re
 import unicodedata
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from models.ModelRegistry import model_registry
-
-app = FastAPI()
+import torch
+from models.summarizerModel import SummarizerModel
 
 
 class SummarizerRequest(BaseModel):
     text: str
 
 
-@app.on_event("startup")
-async def startup_event():
-    await model_registry.load_models()
+model: dict[str, SummarizerModel | None] = {
+    "summarizer": None
+}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Cargar el modelo de resumen al iniciar la aplicación
+    model["summarizer"] = SummarizerModel(
+        model_name="facebook/bart-large-cnn",
+        uses_cuda=torch.cuda.is_available()
+    )
+    yield
+    # Limpiar el modelo al cerrar la aplicación
+    model["summarizer"] = None
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/summarize")
@@ -45,10 +59,12 @@ def summarizer_endpint(data: SummarizerRequest):
     min_len = max(int(estimated_tokens * min_pct), 30)
     max_len = min(int(estimated_tokens * max_pct), 512)
 
-    model = model_registry.get("summarizer")
+    summarizer = model.get("summarizer")
+    if summarizer is None:
+        raise HTTPException(status_code=500, detail="Modelo no cargado")
 
     try:
-        summary = model.summarize(text, min_len=min_len, max_len=max_len)
+        summary = summarizer.summarize(text, min_len=min_len, max_len=max_len)
         return {"resumen": summary}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

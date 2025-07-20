@@ -1,13 +1,18 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from models.translate import TranslateModel
 import torch
 
+
 class TextRequest(BaseModel):
     text: str
 
-model_instance = {"translator": None}
+
+model_instance: dict[str, dict[str, TranslateModel | None] | None] = {
+    "translator": None
+}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -20,20 +25,40 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+
 @app.post("/detectar_idioma")
 def detect_language(request: TextRequest):
     return {"language": TranslateModel.detect_language(request.text)}
 
+
 @app.post("/traducir_a_ingles")
 def translate_to_english(request: TextRequest):
-    idioma = TranslateModel.detect_language(request.text)
-    if idioma == "en":
+    idioma_texto = TranslateModel.detect_language(request.text)
+    if idioma_texto == "en":
         return {"translation": request.text}
+    
+    translators = model_instance.get("translator")
+    if (translators is None):
+        raise 
+    english_translator = translators.get("to_en")
+    
+    
+    if english_translator is None:
+        raise HTTPException(status_code=500, detail="Modelo no cargado")
+    
     else:
-        translator = model_instance["translator"]["to_en"]
-        return {"translation": translator.translate(request.text)}
+        return {"translation": english_translator.translate(request.text)}
+
 
 @app.post("/traducir_a_espanol")
 def translate_to_spanish(request: TextRequest):
-    translator = model_instance["translator"]["to_es"]
-    return {"translation": translator.translate(request.text)}
+    translators = model_instance.get("translator")
+    if (translators is None):
+        raise 
+    spanish_translator = translators.get("to_es")
+    
+    
+    if spanish_translator is None:
+        raise HTTPException(status_code=500, detail="Modelo no cargado")
+    
+    return {"translation": spanish_translator.translate(request.text)}

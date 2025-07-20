@@ -1,5 +1,4 @@
-from transformers import pipeline
-import transformers
+from transformers.pipelines import pipeline
 from nltk.corpus import stopwords
 import nltk
 

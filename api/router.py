@@ -89,6 +89,7 @@ class TokenizerWrapper:
 
 DEFAULT_CHUNK_SIZE = 512
 DEFAULT_OVERLAP_PERCENTAGE = 1/4
+DEFAULT_TIMEOUT = 30.0 
 
 QGQA_MODEL_NAME = 'google/flan-t5-large'
 
@@ -332,27 +333,38 @@ async def generate(request: GeneratorPromptRequest):
 @app.post("/summarizer/")
 async def summarize(request: SummarizerPromptRequest):
     try:
-        async with httpx.AsyncClient() as client:
+        print(f"Enviando solicitud a {SUMMARIZER_MODEL_URL}/summarize")  # <-- Agregar
+        print(f"Datos enviados: {request.model_dump(mode='json')}")  # <-- Agregar
+        
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{SUMMARIZER_MODEL_URL}/summarize",
-                json=request.model_dump(mode="json")
+                json=request.model_dump(mode="json"),
+                timeout=DEFAULT_TIMEOUT  # <-- Agregar timeout
             )
+            print(f"Respuesta recibida: {response.status_code}")  # <-- Agregar
             response.raise_for_status()
             return response.json()
-    except httpx.RequestError:
+    except httpx.RequestError as e:
+        print(f"Error de conexión: {str(e)}")  # <-- Agregar
         raise HTTPException(
             status_code=503, detail="Summarizer service unavailable")
     except httpx.HTTPStatusError as e:
+        print(f"Error HTTP: {str(e)}")  # <-- Agregar
         raise HTTPException(status_code=500, detail=f"Summarizer error: {e}")
+    except Exception as e:
+        print(f"Error inesperado: {str(e)}")  # <-- Agregar
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")
 
 
 @app.post("/translator/detectar_idioma/")
 async def detect_language(request: TranslatePromptRequest):
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{TRANSLATE_MODEL_URL}/detectar_idioma",
-                json={"text": request.text}
+                json={"text": request.text},
+                timeout=DEFAULT_TIMEOUT
             )
             response.raise_for_status()
             return response.json()  # ejemplo {"language": "es"}
@@ -366,10 +378,11 @@ async def detect_language(request: TranslatePromptRequest):
 @app.post("/translator/traducir_a_ingles/")
 async def translate_to_english(request: TranslatePromptRequest):
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{TRANSLATE_MODEL_URL}/traducir_a_ingles",
-                json={"text": request.text}
+                json={"text": request.text},
+                timeout=DEFAULT_TIMEOUT
             )
             response.raise_for_status()
             # ejemplo {"translated_text": "This is a translation."}
@@ -384,10 +397,11 @@ async def translate_to_english(request: TranslatePromptRequest):
 @app.post("/translator/traducir_a_espanol/")
 async def translate_to_spanish(request: TranslatePromptRequest):
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{TRANSLATE_MODEL_URL}/traducir_a_espanol",
-                json={"text": request.text}
+                json={"text": request.text},
+                timeout=DEFAULT_TIMEOUT
             )
             response.raise_for_status()
             # ejemplo {"translated_text": "Esta es una traducción."}
@@ -397,6 +411,31 @@ async def translate_to_spanish(request: TranslatePromptRequest):
             status_code=503, detail="Translator service unavailable")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"Translator error: {e}")
+    
+@app.get("/health")
+async def health_check():
+    services = {
+        "text2text": T2T_MODEL_URL,
+        "summarizer": SUMMARIZER_MODEL_URL,
+        "translator": TRANSLATE_MODEL_URL
+    }
+    
+    results = {}
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        for name, url in services.items():
+            try:
+                response = await client.get(f"{url}/health", timeout=DEFAULT_TIMEOUT)
+                results[name] = {
+                    "status": "active" if response.status_code == 200 else "inactive",
+                    "status_code": response.status_code
+                }
+            except Exception as e:
+                results[name] = {
+                    "status": "error",
+                    "error": str(e)
+                }
+    
+    return results
 
 #
 # ==========================================================

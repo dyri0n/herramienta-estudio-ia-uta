@@ -27,8 +27,9 @@ async def lifespan(app: FastAPI):
         SMALL = "google/flan-t5-small"
         LARGE = "google/flan-t5-large"
         XL = "google/flan-t5-xl"
+        BASE= "google/flan-t5-base"
 
-    model_name = FlanT5Model.LARGE.value  # Cambia a SMALL o XL si es necesario
+    model_name = FlanT5Model.BASE.value  # Cambia a SMALL, BASE o XL si es necesario
 
     model["generator"] = FlanT5Text2TextGenerator(
         model=model_name,
@@ -46,7 +47,7 @@ def generate_text(request: QuestionGenerationRequest):
     generator = model.get("generator")
     if generator is None:
         return {"error": "Model not loaded"}
-    return {"response": generator.generate_question(request.context)}
+    return {"response": generator.generate_question(generator.proccess_input(request.context))}
 
 
 @app.post("/generate_answer")

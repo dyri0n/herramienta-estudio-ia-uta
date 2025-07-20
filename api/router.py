@@ -2,6 +2,7 @@ import re
 from typing import Callable
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from microservices.qgqa.utils import filter_duplicate_qas, is_valid_answer
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import httpx
@@ -314,14 +315,15 @@ async def generate(request: GeneratorPromptRequest):
                 all_qas.append(
                     GQA(context=chunk, question=pregunta_generada, answer=respuesta_generada, quality=None))
 
-        # 7. Selección de QA (simulado, aquí devolvemos todos)
-        # selected_qas = evaluate(all_qas)  # Aquí podrías filtrar/deduplicar
+        # 7. Filtrar QA inválidos o repetidos
+        valid_qas = [qa for qa in all_qas if is_valid_answer(qa.answer)]
+        filtered_qas = filter_duplicate_qas(valid_qas)
 
         # 8. Traducir de vuelta al idioma original (simulado)
         # selected_qas = traducir(selected_qas, target_lang=idioma)
 
         # 9. Responder al API Gateway
-        return {"qas": all_qas}
+        return {"qas": filtered_qas}
 
     except httpx.RequestError:
         raise HTTPException(

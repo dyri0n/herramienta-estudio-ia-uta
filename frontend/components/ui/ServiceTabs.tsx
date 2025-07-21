@@ -55,6 +55,12 @@ export default function ServiceTabs() {
       return;
     }
 
+    // Verificar que el texto no esté vacío después de limpiar
+    if (state.currentDocument.content.trim().length === 0) {
+      setError('El documento no contiene texto válido para procesar');
+      return;
+    }
+
     setError(null);
     setIsProcessing(true);
 
@@ -101,34 +107,44 @@ export default function ServiceTabs() {
       console.log("Resultado recibido:", result);
 
       // Manejar diferentes formatos de respuesta según el servicio
-      let processedResult: any;
-      switch(service.id) {
-        case "questions":
-          // Para generador de preguntas, ahora esperamos un array de QA
-          processedResult = result.qas || [];
-          break;
-        case "summary":
-          // Para resumen, esperamos texto plano
-          processedResult = result.result || result;
-          break;
-        case "translation":
-          // Para traducción, esperamos texto traducido
-          processedResult = result.translated_text || result;
-          break;
-        default:
-          processedResult = result;
-      }
+      let resultToStore: any;
+    switch(service.id) {
+      case "questions":
+        resultToStore = {
+          qas: result.qas || [],
+          // Asegúrate que el backend devuelve un array de QA
+        };
+        break;
+      case "summary":
+        resultToStore = {
+          summary: result.resumen || result, // Adapta según lo que devuelva el backend
+          keywords: result.keywords || [],
+          wordCount: result.wordCount || 0
+        };
+        break;
+      case "translation":
+        resultToStore = {
+          originalText: state.currentDocument.content,
+          translatedText: result.translation || result,
+          confidence: result.confidence || 0.9 // Valor por defecto si no viene
+        };
+        break;
+      default:
+        resultToStore = result;
+    }
 
       // Actualizar el documento en el contexto con el resultado
       dispatch({
-        type: "UPDATE_DOCUMENT",
-        payload: {
-          id: state.currentDocument.id,
-          updates: {
-            [selectedService]: processedResult
-          }
-        }
-      });
+      type: "ADD_RESULT",
+      payload: {
+        id: Date.now().toString(),
+        documentId: state.currentDocument.id,
+        service: selectedService,
+        result: resultToStore, // Usamos la estructura preparada
+        createdAt: new Date(),
+        format: "json"
+      }
+    });
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error desconocido';

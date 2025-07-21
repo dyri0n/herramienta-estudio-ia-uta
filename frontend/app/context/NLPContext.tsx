@@ -37,6 +37,13 @@ type NLPAction =
   | { type: "ADD_RESULT"; payload: NLPResult }
   | { type: "SET_PROCESSING"; payload: boolean }
   | { type: "CLEAR_RESULTS" }
+  | { 
+      type: "UPDATE_DOCUMENT"; 
+      payload: {
+        id: string;
+        updates: Partial<Document>;
+      }
+    }
 
 const initialState: NLPState = {
   documents: [],
@@ -69,6 +76,17 @@ function nlpReducer(state: NLPState, action: NLPAction): NLPState {
       return { ...state, isProcessing: action.payload }
     case "CLEAR_RESULTS":
       return { ...state, results: [] }
+    case "UPDATE_DOCUMENT":
+      return {
+        ...state,
+        documents: state.documents.map(doc => 
+          doc.id === action.payload.id ? { ...doc, ...action.payload.updates } : doc
+        ),
+        currentDocument: 
+          state.currentDocument?.id === action.payload.id
+            ? { ...state.currentDocument, ...action.payload.updates }
+            : state.currentDocument
+      }
     default:
       return state
   }

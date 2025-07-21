@@ -6,6 +6,7 @@ import { Upload, File, X, AlertCircle } from "lucide-react"
 import { useNLP } from "@/app/context/NLPContext"
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
+import { cleanText } from '@/lib/textCleaner';
 
 // Agregar esta función si no existe en tu código
 const parsePptx = async (arrayBuffer: ArrayBuffer): Promise<any[]> => {
@@ -22,16 +23,24 @@ const ACCEPTED_TYPES = {
 const MAX_SIZE = 10 * 1024 * 1024 // 10MB
 
 const extractTextFromFile = async (file: File): Promise<string> => {
+  let rawText: string;
+  
   switch (file.type) {
     case 'application/pdf':
-      return extractTextFromPdf(file);
+      rawText = await extractTextFromPdf(file);
+      break;
     case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-      return extractTextFromDocx(file);
+      rawText = await extractTextFromDocx(file);
+      break;
     case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
-      return extractTextFromPptx(file);
+      rawText = await extractTextFromPptx(file);
+      break;
     default:
       throw new Error('Formato de archivo no soportado');
   }
+  
+  // Limpiar el texto antes de devolverlo
+  return cleanText(rawText);
 };
 
 const extractTextFromPdf = async (file: File): Promise<string> => {

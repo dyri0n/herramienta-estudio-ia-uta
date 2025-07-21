@@ -52,10 +52,10 @@ export default function Home() {
           <div className="space-y-8">
             <ResultViewer />
 
-            {/* History Panel - Desktop */}
+            {/* History Panel - Desktop 
             <div className="hidden lg:block">
               <HistoryPanel />
-            </div>
+            </div>*/}
           </div>
         </div>
       </main>

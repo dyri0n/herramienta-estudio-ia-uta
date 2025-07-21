@@ -439,6 +439,84 @@ async def health_check():
     
     return results
 
+
+@app.post("/summarizer/traducir/")
+async def summarize_translation(request: SummarizerPromptRequest):
+    try:
+        original_text = request.text
+
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            detection_response = await client.post(
+                f"{TRANSLATE_MODEL_URL}/detectar_idioma",
+                json={"text": original_text}
+            )
+            detection_response.raise_for_status()
+            language_name = detection_response.json().get("language", "en").lower()
+
+            language_map = {
+                "english": "en", "inglés": "en",
+                "español": "es", "spanish": "es",
+                "francés": "fr", "french": "fr",
+                "alemán": "de", "german": "de"
+            }
+            detected_language = language_map.get(language_name, language_name)
+
+            translated_text = original_text
+            was_translated = False
+            if detected_language != "en":
+                translation_response = await client.post(
+                    f"{TRANSLATE_MODEL_URL}/traducir_a_ingles",
+                    json={"text": original_text}
+                )
+                translation_response.raise_for_status()
+                translation_json = translation_response.json()
+
+                translated_text = (
+                    translation_json.get("translated_text") or
+                    translation_json.get("text") or
+                    translation_json.get("translation") or
+                    ""
+                )
+
+                if not translated_text.strip():
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Error al traducira inglés"
+                    )
+
+                was_translated = True
+
+            summarize_response = await client.post(
+                f"{SUMMARIZER_MODEL_URL}/summarize",
+                json={"text": translated_text}
+            )
+            summarize_response.raise_for_status()
+            summary_en = summarize_response.json().get("resumen", translated_text)
+
+            final_summary = summary_en
+            if was_translated:
+                back_translation_response = await client.post(
+                    f"{TRANSLATE_MODEL_URL}/traducir_a_espanol",
+                    json={"text": summary_en}
+                )
+                back_translation_response.raise_for_status()
+                back_translation_json = back_translation_response.json()
+
+                possible_keys = ["translated_text", "traducción", "translation"]
+                final_summary = next(
+                    (back_translation_json.get(k) for k in possible_keys if k in back_translation_json),
+                    summary_en
+                )
+
+            return {"resumen": final_summary}
+
+    except httpx.RequestError:
+        raise HTTPException(status_code=503, detail="Alguno de los servicios no está disponible")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=500, detail=f"Service error: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
 #
 # ==========================================================
 #

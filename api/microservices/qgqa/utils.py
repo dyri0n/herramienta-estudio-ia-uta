@@ -5,7 +5,7 @@ qa_filter_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 def is_valid_answer(answer: str) -> bool:
     answer = answer.strip()
-    if not answer or len(answer) < 15:
+    if not answer:
         return False
     if answer.lower() in ["none", "n/a", "(ii)", "..."]:
         return False

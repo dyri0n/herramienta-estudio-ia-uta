@@ -19,7 +19,7 @@ const services = [
     description: "Crea un resumen conciso del documento",
     icon: FileText,
     color: "text-green-600",
-    endpoint: "/summarizer/",
+    endpoint: "/summarizer/traducir/",
     requestBody: (content: string) => ({ text: content })
   },
   {

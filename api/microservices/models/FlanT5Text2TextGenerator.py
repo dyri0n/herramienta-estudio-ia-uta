@@ -38,7 +38,7 @@ class FlanT5Text2TextGenerator:
 
         return q_text
 
-    import re
+    
 
 
     def proccess_input(self, plain_text: str) -> str:
@@ -76,8 +76,6 @@ class FlanT5Text2TextGenerator:
             "Answer:"
         )
 
-        print(f"Prompt: {prompt_a}")
-
         out_a = self.generator(
             prompt_a,
             # beam search
@@ -91,13 +89,10 @@ class FlanT5Text2TextGenerator:
             top_p=0.9,
         )
 
-        print(f"Output: {out_a}")
-
         if isinstance(out_a, list) and len(out_a) > 0 and "generated_text" in out_a[0]:
             a_text = out_a[0].get("generated_text", "").strip()
         else:
-            print(f"ERROR: {out_a!r}")
             raise RuntimeError(f"Formato inesperado de salida: {out_a!r}")
 
-        print(f"Respuesta generada: {a_text}")
+        
         return a_text

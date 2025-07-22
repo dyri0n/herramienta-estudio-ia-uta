@@ -1,8 +1,9 @@
 import re
 from typing import Callable
+import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from microservices.qgqa.utils import filter_duplicate_qas, is_valid_answer
+from microservices.qgqa.utils import evaluar_calidad_qa, filter_duplicate_qas, is_valid_answer
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import httpx
@@ -92,9 +93,17 @@ DEFAULT_CHUNK_SIZE = 512
 DEFAULT_OVERLAP_PERCENTAGE = 1/4
 DEFAULT_TIMEOUT = 30.0 
 
-QGQA_MODEL_NAME = 'google/flan-t5-large'
+QGQA_MODEL_NAME = 'google/flan-t5-base'  # Cambia según el modelo que uses
 
 MODEL_CONFIG = {
+    "google/flan-t5-small": {
+        "max_tokens": 256,
+        "recommended_output_tokens": 100
+    },
+    "google/flan-t5-base": {
+        "max_tokens": 512,
+        "recommended_output_tokens": 100
+    },
     "google/flan-t5-large": {
         "max_tokens": 512,
         "recommended_output_tokens": 100
@@ -106,10 +115,6 @@ MODEL_CONFIG = {
     "google/flan-t5-xxl": {
         "max_tokens": 4096,
         "recommended_output_tokens": 200
-    },
-    "google/flan-t5-small": {
-        "max_tokens": 256,
-        "recommended_output_tokens": 100
     },
 }
 
@@ -213,7 +218,6 @@ def chunk_by_sentences(
 
     return chunks
 
-
 # ---------
 # ENDPOINTS
 # ---------
@@ -241,88 +245,83 @@ app.add_middleware(
 
 @app.post("/generator/")
 async def generate(request: GeneratorPromptRequest):
+    MAX_CONCURRENT_TASKS = 20 
     try:
         # 1. Detectar idioma (simulado)
-        # idioma = detectar_idioma(request.context)
-        # idioma = "es"  # Simulación
-
-        # 2. Traducir a inglés si es necesario (simulado)
-        # context_en = traducir(request.context, target_lang="en")
         context_en: str = request.context  # Simulación
 
-        # 3. Chunking del texto
-
-        # Chunkeo precario
-        # chunks = _chunk_and_overlap_text(context_en)
-
+        # 2. Chunking del texto
         model_spec = MODEL_CONFIG[QGQA_MODEL_NAME]
-
         tokenizer_hf = TokenizerWrapper(AutoTokenizer.from_pretrained(QGQA_MODEL_NAME))
 
-        # Alternativa basada en tokens:
-        # chunks = chunk_by_tokens(
-        #     text=context_en,
-        #     tokenizer=tokenizer,
-        #     max_input_tokens=model_spec["max_tokens"],
-        #     max_output_tokens=model_spec["recommended_output_tokens"],
-        #     overlap_tokens=50,
-        #     min_chunk_tokens=100
-        # )
-
-        # Alternativa basada en oraciones:
         chunks = chunk_by_sentences(
             text=context_en,
             tokenizer=tokenizer_hf,
             max_input_tokens=model_spec["max_tokens"],
             max_output_tokens=model_spec["recommended_output_tokens"],
-            overlap_sentences=6,
-            min_chunk_tokens=model_spec["max_tokens"]-100
+            overlap_sentences=3,
+            min_chunk_tokens=model_spec["max_tokens"] - 100
         )
 
         print("===== CHUNKS GENERADOS =====")
         for idx, chunk in enumerate(chunks):
-            print(
-                f"[Chunk {idx+1} | Tokens: {count_tokens(chunk, tokenizer_hf)}]{chunk}")
+            print(f"[Chunk {idx+1} | Tokens: {count_tokens(chunk, tokenizer_hf)}]{chunk}")
 
-        all_qas: list[GQA] = []
-        async with httpx.AsyncClient() as client:
-            # 4. Generar preguntas para cada chunk llamando al microservicio
-            for chunk in chunks:
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+
+        async def generar_qa_para_chunk(client: httpx.AsyncClient, chunk: str):
+            async with semaphore:
                 try:
-                    resp = await client.post(
-                        f"{T2T_MODEL_URL}/generate_question",
-                        json={"context": chunk})
+                    resp = await client.post(f"{T2T_MODEL_URL}/generate_question", json={"context": chunk})
                     resp.raise_for_status()
-                    data = resp.json()  # TODO: tipar respuesta
-                    pregunta_generada: str = data.get("response", "")
+                    pregunta_generada = resp.json().get("response", "").strip()
                 except Exception as e:
-                    pregunta_generada = f"Error al generar preguntas: {str(e)}"
+                    print(f"[ERROR pregunta] {str(e)}")
+                    return None  # No continuar
 
-                # 5. Generar respuestas para cada pregunta llamando al microservicio (simulado)
+                if not pregunta_generada:
+                    return None
+
                 try:
                     resp = await client.post(
                         f"{T2T_MODEL_URL}/generate_answer",
-                        json={"context": chunk, "question": pregunta_generada})
+                        json={"context": chunk, "question": pregunta_generada}
+                    )
                     resp.raise_for_status()
-                    data = resp.json()
-                    respuesta_generada: str = data.get("response", "")
+                    respuesta_generada = resp.json().get("response", "").strip()
                 except Exception as e:
-                    respuesta_generada = f"Error al generar preguntas: {str(e)}"
+                    print(f"[ERROR respuesta] {str(e)}")
+                    return None
 
-                # 6. Evaluar las preguntas y respuestas generadas
-                # gqa: {chunk, q, a, quality} = evaluar_generacion_qa(q, a)
+                if not is_valid_answer(respuesta_generada):
+                    return None
 
-                all_qas.append(
-                    GQA(context=chunk, question=pregunta_generada, answer=respuesta_generada, quality=None))
+                return GQA(
+                    context=chunk, 
+                    question=pregunta_generada, 
+                    answer=respuesta_generada, 
+                    quality= evaluar_calidad_qa(
+                        answer=respuesta_generada,
+                        question=pregunta_generada
+                    )
+                )
+
+        # 4–6. QA generation concurrente
+        async with httpx.AsyncClient() as client:
+            tareas = [generar_qa_para_chunk(client, chunk) for chunk in chunks]
+            all_qas_raw: list[GQA | None] = await asyncio.gather(*tareas)
+            all_qas: list[GQA] = [qa for qa in all_qas_raw if qa is not None]
+
 
         # 7. Filtrar QA inválidos o repetidos
         valid_qas = [qa for qa in all_qas if is_valid_answer(qa.answer)]
         filtered_qas = filter_duplicate_qas(valid_qas)
 
         # 8. Traducir de vuelta al idioma original (simulado)
-        # selected_qas = traducir(selected_qas, target_lang=idioma)
+        # selected_qas = traducir(filtered_qas, target_lang=idioma)
 
         # 9. Responder al API Gateway
+        filtered_qas.sort(key=lambda x: x.quality if x.quality is not None else 0, reverse=True)
         return {"qas": filtered_qas}
 
     except httpx.RequestError:

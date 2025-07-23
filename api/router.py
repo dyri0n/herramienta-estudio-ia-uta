@@ -1,14 +1,17 @@
-import re
-from typing import Callable
 import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from microservices.qgqa.utils import evaluar_calidad_qa, filter_duplicate_qas, is_valid_answer
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import httpx
-from transformers import AutoTokenizer
 
+# TODO: crear otro archivo de tipos independiente
+from microservices.qgqa.api_types import QAGenerationRequest, QAValidationRequest, GQA
+
+
+DEFAULT_TIMEOUT = 30.0
 
 
 class GeneratorPromptRequest(BaseModel):
@@ -19,11 +22,7 @@ class SummarizerPromptRequest(BaseModel):
     text: str
 
 
-class GQA(BaseModel):
-    context: str
-    question: str
-    answer: str
-    quality: float | None = None
+# Elimina la definición local de GQA, ya que se importa desde api_types
 
 
 class TranslatePromptRequest(BaseModel):
@@ -77,146 +76,6 @@ SUMMARIZER_MODEL_URL = f"http://localhost:{SUMMARIZER_MODEL_PORT}"
 # HELPER FUNCTIONS
 # ----------------
 
-class TokenizerWrapper:
-    def __init__(self, tokenizer):
-        self.tokenizer = tokenizer
-        self.encode = self._encode
-        self.decode = self._decode
-
-    def _encode(self, text: str, *args, **kwargs):
-        return self.tokenizer.encode(text, *args, **kwargs)
-
-    def _decode(self, tokens: list[int], *args, **kwargs):
-        return self.tokenizer.decode(tokens, *args, **kwargs)
-
-DEFAULT_CHUNK_SIZE = 512
-DEFAULT_OVERLAP_PERCENTAGE = 1/4
-DEFAULT_TIMEOUT = 30.0 
-
-QGQA_MODEL_NAME = 'google/flan-t5-base'  # Cambia según el modelo que uses
-
-MODEL_CONFIG = {
-    "google/flan-t5-small": {
-        "max_tokens": 256,
-        "recommended_output_tokens": 100
-    },
-    "google/flan-t5-base": {
-        "max_tokens": 512,
-        "recommended_output_tokens": 100
-    },
-    "google/flan-t5-large": {
-        "max_tokens": 512,
-        "recommended_output_tokens": 100
-    },
-    "google/flan-t5-xl": {
-        "max_tokens": 4096,
-        "recommended_output_tokens": 200
-    },
-    "google/flan-t5-xxl": {
-        "max_tokens": 4096,
-        "recommended_output_tokens": 200
-    },
-}
-
-
-# Chunkeo por caracteres
-
-
-def _chunk_and_overlap_text(
-    text: str,
-    chunk_size: int = DEFAULT_CHUNK_SIZE,
-    overlap: int = int(DEFAULT_CHUNK_SIZE * DEFAULT_OVERLAP_PERCENTAGE)
-):
-    start = 0
-    chunks = []
-    while start < len(text):
-        end = min(start + chunk_size, len(text))
-        chunks.append(text[start:end])
-        start += chunk_size - overlap
-    return chunks
-
-
-def split_into_sentences(text: str) -> list[str]:
-    # Separación básica por oraciones usando puntuación
-    splitted_text = re.split(r'(?<=[.!?])\s+', text.strip())
-    print(splitted_text)
-    return splitted_text
-
-
-def count_tokens(text: str, tokenizer: TokenizerWrapper) -> int:
-    return len(tokenizer.encode(text)) # type: ignore
-
-
-def chunk_by_tokens(
-    text: str,
-    tokenizer: TokenizerWrapper,
-    max_input_tokens: int,
-    max_output_tokens: int = 100,
-    overlap_tokens: int = 50,
-    min_chunk_tokens: int = 100
-) -> list[str]:
-    tokens = tokenizer.encode(text)
-    chunks = []
-    start = 0
-    max_chunk_len = max_input_tokens - max_output_tokens
-
-    while start < len(tokens):
-        end = start + max_chunk_len
-        chunk_tokens = tokens[start:end]
-
-        # Si es el último chunk y queda muy corto, ajustamos hacia atrás
-        if len(chunk_tokens) < min_chunk_tokens and chunks:
-            # Pegamos lo que sobra al chunk anterior
-            chunks[-1] += " " + tokenizer.decode(chunk_tokens)  
-            break
-
-        chunk_text = tokenizer.decode(chunk_tokens)  
-        chunks.append(chunk_text.strip())
-
-        start += max_chunk_len - overlap_tokens
-
-    return chunks
-
-
-def chunk_by_sentences(
-    text: str,
-    tokenizer: TokenizerWrapper,
-    max_input_tokens: int,
-    max_output_tokens: int = 100,
-    overlap_sentences: int = 1,
-    min_chunk_tokens: int = 100
-) -> list[str]:
-    sentences = split_into_sentences(text)
-    chunks = []
-    i = 0
-    max_chunk_len = max_input_tokens - max_output_tokens
-
-    while i < len(sentences):
-        current_chunk = []
-        token_count = 0
-        j = i
-
-        # Agregar oraciones mientras no se pase del límite de tokens
-        while j < len(sentences):
-            sentence = sentences[j]
-            sentence_tokens = tokenizer.encode(sentence, add_special_tokens=False)
-            if token_count + len(sentence_tokens) > max_chunk_len:
-                break
-            current_chunk.append(sentence)
-            token_count += len(sentence_tokens)
-            print(sentence, token_count, max_chunk_len)
-            print(chunks)
-            j += 1
-
-        # Si el chunk está muy corto y no es el primero, lo fusionamos con el anterior
-        #if token_count < min_chunk_tokens and chunks:
-        #    chunks[-1] += " " + " ".join(current_chunk)
-        #else:
-        chunks.append(" ".join(current_chunk).strip())
-
-        i = max(i + 1, j - overlap_sentences)
-
-    return chunks
 
 # ---------
 # ENDPOINTS
@@ -245,84 +104,99 @@ app.add_middleware(
 
 @app.post("/generator/")
 async def generate(request: GeneratorPromptRequest):
-    MAX_CONCURRENT_TASKS = 20 
+    MAX_CONCURRENT_TASKS = 5
     try:
-        # 1. Detectar idioma (simulado)
-        context_en: str = request.context  # Simulación
-
-        # 2. Chunking del texto
-        model_spec = MODEL_CONFIG[QGQA_MODEL_NAME]
-        tokenizer_hf = TokenizerWrapper(AutoTokenizer.from_pretrained(QGQA_MODEL_NAME))
-
-        chunks = chunk_by_sentences(
-            text=context_en,
-            tokenizer=tokenizer_hf,
-            max_input_tokens=model_spec["max_tokens"],
-            max_output_tokens=model_spec["recommended_output_tokens"],
-            overlap_sentences=3,
-            min_chunk_tokens=model_spec["max_tokens"] - 100
-        )
-
-        print("===== CHUNKS GENERADOS =====")
-        for idx, chunk in enumerate(chunks):
-            print(f"[Chunk {idx+1} | Tokens: {count_tokens(chunk, tokenizer_hf)}]{chunk}")
-
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
-
-        async def generar_qa_para_chunk(client: httpx.AsyncClient, chunk: str):
-            async with semaphore:
-                try:
-                    resp = await client.post(f"{T2T_MODEL_URL}/generate_question", json={"context": chunk})
-                    resp.raise_for_status()
-                    pregunta_generada = resp.json().get("response", "").strip()
-                except Exception as e:
-                    print(f"[ERROR pregunta] {str(e)}")
-                    return None  # No continuar
-
-                if not pregunta_generada:
-                    return None
-
-                try:
-                    resp = await client.post(
-                        f"{T2T_MODEL_URL}/generate_answer",
-                        json={"context": chunk, "question": pregunta_generada}
-                    )
-                    resp.raise_for_status()
-                    respuesta_generada = resp.json().get("response", "").strip()
-                except Exception as e:
-                    print(f"[ERROR respuesta] {str(e)}")
-                    return None
-
-                if not is_valid_answer(respuesta_generada):
-                    return None
-
-                return GQA(
-                    context=chunk, 
-                    question=pregunta_generada, 
-                    answer=respuesta_generada, 
-                    quality= evaluar_calidad_qa(
-                        answer=respuesta_generada,
-                        question=pregunta_generada
-                    )
-                )
-
-        # 4–6. QA generation concurrente
         async with httpx.AsyncClient() as client:
+            # 1. Detectar idioma (simulado)
+            # idioma = detectar_idioma(request.context)
+            # idioma = "es"  # Simulación
+
+            # 2. Traducir a inglés si es necesario (simulado)
+            # context_en = traducir(request.context, target_lang="en")
+            context_en: str = request.context  # Simulación
+
+            # 3. Chunking del texto
+            try:
+                resp = await client.post(
+                    f"{T2T_MODEL_URL}/preprocess-and-chunk",
+                    json={"translated_context": context_en}
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                chunks = data.get("response", [])
+                # Print chunks as a string (max 40 chars), array length, and isinstance
+                chunks_str = str(chunks)[:40] + \
+                    ("..." if len(str(chunks)) > 40 else "")
+                print(
+                    f"chunks: {chunks_str} | len: {len(chunks)} | is_list: {isinstance(chunks, list)}")
+            except Exception as e:
+                print(f"Error al generar preguntas: {str(e)}")
+                HTTPException(status_code=500, detail=f"Model error: {e}")
+                return
+
+            semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+
+            async def generar_qa_para_chunk(client: httpx.AsyncClient, chunk: str):
+                async with semaphore:
+                    # 4-5-6. Generar preguntas y respuestas y evaluarlas
+                    # para cada chunk llamando al microservicio
+                    try:
+                        req = QAGenerationRequest(context=chunk)
+                        resp = await client.post(
+                            f"{T2T_MODEL_URL}/generate_qa",
+                            json=req.model_dump(mode="json")
+                        )
+                        resp.raise_for_status()
+                        pregunta_generada_data = resp.json().get("response", "")
+                        pregunta_generada: GQA | None = GQA(
+                            **pregunta_generada_data) if pregunta_generada_data else None
+
+                    except Exception as e:
+                        print(f"[ERROR al generar pregunta] {str(e)}")
+                        pregunta_generada = None  # No continuar
+
+                    print(
+                        (f"{(pregunta_generada.context[:10].strip()+("..." if len(pregunta_generada.context) > 10 else ""))} "
+                         f"K: {pregunta_generada.quality}, "
+                         f"Q: {pregunta_generada.question[:20].strip()+("..." if len(pregunta_generada.question) > 20 else "")}, "
+                         f"A: {pregunta_generada.answer[:20].strip()+("..." if len(pregunta_generada.answer) > 20 else "")}")
+                        if pregunta_generada is not None
+                        else "No se generó una pregunta válida")
+
+                    if not pregunta_generada:
+                        return None
+
+                    return pregunta_generada
+
+            all_qas: list[GQA] = []
+
+            # 4–5-6. Llamada de generación de QAs concurrente
             tareas = [generar_qa_para_chunk(client, chunk) for chunk in chunks]
             all_qas_raw: list[GQA | None] = await asyncio.gather(*tareas)
             all_qas: list[GQA] = [qa for qa in all_qas_raw if qa is not None]
 
+            # 7. Filtrar QA inválidos o repetidos, ordenar y
+            try:
+                req: QAValidationRequest = QAValidationRequest(
+                    gqas=all_qas
+                )
+                resp = await client.post(
+                    f"{T2T_MODEL_URL}/validate_and_deduplicate",
+                    json=req.model_dump(mode="json"))
+                resp.raise_for_status()
+                data = resp.json()
+                validated_gqas: list[GQA] = data.get("response", [])
+                print(f"respuesta validacion: {str(validated_gqas)[:50]}")
+            except Exception as e:
+                print(f"Error al generar preguntas: {str(e)}")
+                HTTPException(status_code=500, detail=f"Model error: {e}")
+                return
 
-        # 7. Filtrar QA inválidos o repetidos
-        valid_qas = [qa for qa in all_qas if is_valid_answer(qa.answer)]
-        filtered_qas = filter_duplicate_qas(valid_qas)
+            # 8. Traducir de vuelta al idioma original (simulado)
+            # selected_qas = traducir(filtered_qas, target_lang=idioma)
 
-        # 8. Traducir de vuelta al idioma original (simulado)
-        # selected_qas = traducir(filtered_qas, target_lang=idioma)
-
-        # 9. Responder al API Gateway
-        filtered_qas.sort(key=lambda x: x.quality if x.quality is not None else 0, reverse=True)
-        return {"qas": filtered_qas}
+            # 9. Responder al API Gateway
+            return {"qas": validated_gqas}
 
     except httpx.RequestError:
         raise HTTPException(
@@ -334,9 +208,11 @@ async def generate(request: GeneratorPromptRequest):
 @app.post("/summarizer/")
 async def summarize(request: SummarizerPromptRequest):
     try:
-        print(f"Enviando solicitud a {SUMMARIZER_MODEL_URL}/summarize")  # <-- Agregar
-        print(f"Datos enviados: {request.model_dump(mode='json')}")  # <-- Agregar
-        
+        # <-- Agregar
+        print(f"Enviando solicitud a {SUMMARIZER_MODEL_URL}/summarize")
+        # <-- Agregar
+        print(f"Datos enviados: {request.model_dump(mode='json')}")
+
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{SUMMARIZER_MODEL_URL}/summarize",
@@ -412,7 +288,8 @@ async def translate_to_spanish(request: TranslatePromptRequest):
             status_code=503, detail="Translator service unavailable")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"Translator error: {e}")
-    
+
+
 @app.get("/health")
 async def health_check():
     services = {
@@ -420,7 +297,7 @@ async def health_check():
         "summarizer": SUMMARIZER_MODEL_URL,
         "translator": TRANSLATE_MODEL_URL
     }
-    
+
     results = {}
     async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
         for name, url in services.items():
@@ -435,7 +312,7 @@ async def health_check():
                     "status": "error",
                     "error": str(e)
                 }
-    
+
     return results
 
 
@@ -501,20 +378,24 @@ async def summarize_translation(request: SummarizerPromptRequest):
                 back_translation_response.raise_for_status()
                 back_translation_json = back_translation_response.json()
 
-                possible_keys = ["translated_text", "traducción", "translation"]
+                possible_keys = ["translated_text",
+                                 "traducción", "translation"]
                 final_summary = next(
-                    (back_translation_json.get(k) for k in possible_keys if k in back_translation_json),
+                    (back_translation_json.get(k)
+                     for k in possible_keys if k in back_translation_json),
                     summary_en
                 )
 
             return {"resumen": final_summary}
 
     except httpx.RequestError:
-        raise HTTPException(status_code=503, detail="Alguno de los servicios no está disponible")
+        raise HTTPException(
+            status_code=503, detail="Alguno de los servicios no está disponible")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"Service error: {e}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Unexpected error: {str(e)}")
 
 #
 # ==========================================================

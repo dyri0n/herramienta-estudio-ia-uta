@@ -17,17 +17,20 @@ class FlanT5Text2TextGenerator:
             device=0 if uses_cuda else -1
         )
 
-    def generate_question(self, context: str, max_length: int = 256) -> str:
-        print("Generando pregunta...")
-        context = self.proccess_input(context)
+    def generate_question(self, id: str, context: str) -> str:
+
+        print(
+            f"[QG] [{id}] Contexto {context[:20]}..., lenght: {len(context)}")
         if not context:
-            raise ValueError("El contexto proporcionado está vacío o no es válido.")
-        print(f"Contexto {context}")
-        prompt_q = f"Generate a question based on the following context: {context}"
+            raise ValueError(
+                "El contexto proporcionado está vacío o no es válido.")
+        prompt_q = (f"Generate a question based on the following context."
+                    "Don't make a multiple answer question. Only open-ended questions\n\n"
+                    "Context: {context}\n\n"
+                    "Question:")
 
         outputs = self.generator(
             prompt_q,
-            max_length=max_length,
             do_sample=True,
         )
 
@@ -36,38 +39,13 @@ class FlanT5Text2TextGenerator:
         else:
             raise RuntimeError(f"Formato inesperado de salida: {outputs!r}")
 
+        print(
+            f"[QG] [{id}] Pregunta generada: {q_text[:20]}..., lenght: {len(q_text)}")
         return q_text
 
-    
-
-
-    def proccess_input(self, plain_text: str) -> str:
-        # Normalizar unicode a forma compuesta
-        text = unicodedata.normalize("NFKC", plain_text)
-
-        # Eliminar caracteres de control y no imprimibles
-        text = re.sub(r'[^\x20-\x7EáéíóúÁÉÍÓÚñÑüÜ]', ' ', text)
-
-        # Reemplazar comillas tipográficas por comillas normales
-        text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
-
-        # Eliminar saltos de línea, tabulaciones y comillas simples/dobles
-        text = text.replace('\n', ' ').replace('\t', ' ')
-        text = text.replace('"', '').replace("'", '')
-
-        # Eliminar otros caracteres que no quieras (ej. paréntesis, corchetes, etc.)
-        text = re.sub(r"[{}\[\]<>]", "", text)
-
-        # Eliminar espacios múltiples
-        text = re.sub(r'\s+', ' ', text)
-
-        # Trim final
-        return text.strip()
-
-
-    def generate_answer(self, question: str, context: str, max_length: int = 64):
-        print("Generando respuesta...")
-        print(f"Pregunta {question}")
+    def generate_answer(self, id: str, question: str, context: str, max_length: int = 64):
+        print(
+            f"[AG] [{id}] Pregunta: {question[:20]}..., lenght: {len(context)}")
         prompt_a = (
             "You are teacher making a test. "
             "Given the context below, answer the question with a clearly and concise.\n\n"
@@ -94,5 +72,30 @@ class FlanT5Text2TextGenerator:
         else:
             raise RuntimeError(f"Formato inesperado de salida: {out_a!r}")
 
-        
+        print(
+            f"[AG] [{id}] Respuesta generada: {a_text[:20]}..., lenght: {len(a_text)}")
         return a_text
+
+    def proccess_input(self, id: str, plain_text: str) -> str:
+        # Normalizar unicode a forma compuesta
+        text = unicodedata.normalize("NFKC", plain_text)
+
+        # Eliminar caracteres de control y no imprimibles
+        text = re.sub(r'[^\x20-\x7EáéíóúÁÉÍÓÚñÑüÜ]', ' ', text)
+
+        # Reemplazar comillas tipográficas por comillas normales
+        text = text.replace('“', '"').replace(
+            '”', '"').replace('‘', "'").replace('’', "'")
+
+        # Eliminar saltos de línea, tabulaciones y comillas simples/dobles
+        text = text.replace('\n', ' ').replace('\t', ' ')
+        text = text.replace('"', '').replace("'", '')
+
+        # Eliminar otros caracteres que no quieras (ej. paréntesis, corchetes, etc.)
+        text = re.sub(r"[{}\[\]<>]", "", text)
+
+        # Eliminar espacios múltiples
+        text = re.sub(r'\s+', ' ', text)
+
+        # Trim final
+        return text.strip()

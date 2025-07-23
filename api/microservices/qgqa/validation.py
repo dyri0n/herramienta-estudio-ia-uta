@@ -2,8 +2,8 @@ from sentence_transformers import SentenceTransformer, util
 
 from transformers import AutoTokenizer
 
-# Inicializar una sola vez
-qa_filter_model = SentenceTransformer("all-MiniLM-L6-v2")
+from qgqa.api_types import GQA
+
 
 def is_valid_answer(answer: str) -> bool:
     answer = answer.strip()
@@ -14,7 +14,9 @@ def is_valid_answer(answer: str) -> bool:
     return True
 
 
-def filter_duplicate_qas(qas: list, threshold=0.85) -> list:
+def filter_duplicate_qas(qas: list[GQA], threshold=0.85) -> list[GQA]:
+    qa_filter_model = SentenceTransformer("all-MiniLM-L6-v2")
+
     filtered = []
     seen_questions = []
 
@@ -36,7 +38,8 @@ def filter_duplicate_qas(qas: list, threshold=0.85) -> list:
 
     return filtered
 
-def evaluar_calidad_qa(answer: str, question: str) -> float:
+
+def evaluar_calidad_qa(id: str, answer: str, question: str) -> float:
     """
     Devuelve una puntuación de calidad entre 0.0 y 1.0.
     """

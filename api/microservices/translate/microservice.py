@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from models.translate import TranslateModel
+from ..models.translate import TranslateModel
 import torch
 
 

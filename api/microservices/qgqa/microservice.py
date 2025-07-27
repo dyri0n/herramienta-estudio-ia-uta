@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from models.FlanT5Text2TextGenerator import FlanT5Text2TextGenerator
+from ..models.FlanT5Text2TextGenerator import FlanT5Text2TextGenerator
 import torch
 from enum import Enum
 

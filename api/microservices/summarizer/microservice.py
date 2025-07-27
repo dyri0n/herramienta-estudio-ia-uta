@@ -4,7 +4,7 @@ import unicodedata
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import torch
-from models.summarizerModel import SummarizerModel
+from ..models.summarizerModel import SummarizerModel
 
 
 class SummarizerRequest(BaseModel):

@@ -1,5 +1,5 @@
 import re
-from qgqa.constants import DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP_PERCENTAGE
+from constants import DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP_PERCENTAGE
 
 
 class TokenizerWrapper:
@@ -108,6 +108,7 @@ def chunk_by_sentences(
         chunks.append(stripped_chunk)
 
         chunk_count += 1
-        sentence_start = max(sentence_start + 1, sentence_index - overlap_sentences)
+        sentence_start = max(sentence_start + 1,
+                             sentence_index - overlap_sentences)
 
     return chunks

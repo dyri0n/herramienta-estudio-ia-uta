@@ -2,10 +2,10 @@ import uuid
 from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
 from ..models.FlanT5Text2TextGenerator import FlanT5Text2TextGenerator
-from qgqa.validation import filter_duplicate_qas, is_valid_answer, evaluar_calidad_qa
-from qgqa.chunking import TokenizerWrapper, chunk_by_sentences
-from qgqa.api_types import GQA, PreprocessAndChunkingRequest, QAGenerationRequest, QAValidationRequest
-from qgqa.constants import MODEL_CONFIG, MODEL_NAME
+from validation import filter_duplicate_qas, is_valid_answer, evaluar_calidad_qa
+from chunking import TokenizerWrapper, chunk_by_sentences
+from api_types import GQA, PreprocessAndChunkingRequest, QAGenerationRequest, QAValidationRequest
+from constants import MODEL_CONFIG, MODEL_NAME
 import torch
 from transformers import AutoTokenizer
 

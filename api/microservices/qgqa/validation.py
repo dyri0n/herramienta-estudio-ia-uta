@@ -2,7 +2,7 @@ from sentence_transformers import SentenceTransformer, util
 
 from transformers import AutoTokenizer
 
-from qgqa.api_types import GQA
+from api_types import GQA
 
 
 def is_valid_answer(answer: str) -> bool:

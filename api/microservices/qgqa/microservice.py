@@ -47,65 +47,76 @@ def preprocess_and_chunk_text(request: PreprocessAndChunkingRequest):
 def generate_text(request: QAGenerationRequest):
     process_code = uuid.uuid4().hex[:5]
     generator = model.get("generator")
+
     if generator is None:
         return {"error": "Model not loaded"}
 
-    # secuencial pq asi debe ser
-    context = generator.proccess_input(process_code, request.context)
-    if not context:
-        raise HTTPException(status_code=410, detail=f"Contexto vacío")
-    question = generator.generate_question(process_code, context)
-    if not question:
+    contexts = [generator.proccess_input(
+        process_code, c) for c in request.context]
+    contexts = [c for c in contexts if c]
+
+    if not contexts:
         raise HTTPException(
-            status_code=500, detail=f"No se generó una pregunta válida")
-    answer = generator.generate_answer(process_code, question, context)
+            status_code=410, detail="Todos los contextos están vacíos")
 
-    if not answer:
-        gqa = GQA(context=context, question=question, answer=answer, quality=0)
-        return {"response": gqa}
-    # TODO: implementar process_code
-    quality = evaluar_calidad_qa(process_code, question, answer)
-    gqa = GQA(
-        context=context,
-        question=question,
-        answer=answer,
-        quality=quality if quality else 0)
+    try:
+        questions = generator.generate_questions_batch(process_code, contexts)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error generando preguntas: {str(e)}")
 
-    print(
-        f"[✅] Generated QA: {gqa.quality} ({gqa.context[:10]}) ({gqa.question[:10]}) ({gqa.answer[:10]}) ")
-    return {"response": gqa}
+    try:
+        answers = generator.generate_answers_batch(
+            process_code, questions, contexts)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error generando respuestas: {str(e)}")
+
+    gqas = []
+    for ctx, q, a in zip(contexts, questions, answers):
+        if not a:
+            gqas.append(GQA(context=ctx, question=q, answer=a, quality=0))
+            continue
+        quality = evaluar_calidad_qa(process_code, q, a)
+        gqa = GQA(
+            context=ctx,
+            question=q,
+            answer=a,
+            quality=quality if quality else 0
+        )
+        gqas.append(gqa)
+        print(
+            f"[✅] Generated QA: {gqa.quality} ({gqa.context[:10]}) ({gqa.question[:10]}) ({gqa.answer[:10]})")
+
+    return {"response": gqas}
 
 
 @app.post("/validate_and_deduplicate")
 def validate_and_deduplicate_gqa(request: QAValidationRequest):
     all_qas: list[GQA] = request.gqas
     process_code = uuid.uuid4().hex[:5]
-    print(f"[ START-VDF] [{process_code}] {str(all_qas)[:50]}")
-    if all_qas is None:
-        raise HTTPException(
-            status_code=410, detail=f"No se generó nada válido")
 
-    # Removing invalid gqas
-    valid_qas: list[GQA] = [qa for qa in all_qas if is_valid_answer(qa.answer)]
+    print(f"[ START-VDF] [{process_code}] Recibidas: {len(all_qas)} QAs")
+
+    if not all_qas:
+        raise HTTPException(status_code=410, detail="No se generó nada válido")
+
+    valid_qas = [qa for qa in all_qas if is_valid_answer(qa.answer)]
     if not valid_qas:
         raise HTTPException(
-            status_code=410, detail=f"No se generaron preguntas y respuestas válidas"
-        )
-    print(f"[VALIDATING] [{process_code}] {str(valid_qas)[:50]}")
+            status_code=410, detail="No se generaron QAs válidos")
 
-    # Removing duplicated gqas
-    filtered_qas: list[GQA] = filter_duplicate_qas(valid_qas)
+    print(f"[VALIDATING] [{process_code}] QAs válidas: {len(valid_qas)}")
+
+    filtered_qas = filter_duplicate_qas(valid_qas)
     if not filtered_qas:
         raise HTTPException(
-            status_code=410, detail=f"Se quedo sin preguntas y respuestas al deduplicar"
-        )
-    print(f"[ FILTERING] [{process_code}] {str(filtered_qas)[:50]}")
+            status_code=410, detail="Se eliminaron todas las QAs al deduplicar")
 
-    # Sorting by quality
+    print(f"[ FILTERING] [{process_code}] QAs únicas: {len(filtered_qas)}")
+
     filtered_qas.sort(
-        key=lambda x:
-            x.quality if x.quality is not None else 0,
-            reverse=True)
+        key=lambda x: x.quality if x.quality is not None else 0, reverse=True)
+    print(f"[   SORTING] [{process_code}] QAs ordenadas")
 
-    print(f"[   SORTING] [{process_code}] {str(filtered_qas)[:50]}")
     return {"response": filtered_qas}

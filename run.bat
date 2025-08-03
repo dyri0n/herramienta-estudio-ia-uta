@@ -8,8 +8,8 @@ title Iniciando Proyecto NLP
 
 :: Backend Setup
 cd /d "%BASE_DIR%api"
-if not exist venv (
-    python -m venv venv
+if not exist .venv (
+    python -m venv .venv
     if %ERRORLEVEL% neq 0 (
         echo ERROR: Fallo al crear entorno virtual
         set ERROR_FLAG=1
@@ -17,7 +17,7 @@ if not exist venv (
     )
 )
 
-call venv\Scripts\activate
+call .venv\Scripts\activate
 
 :: Instalar dependencias básicas
 python -m pip install --upgrade pip
@@ -33,16 +33,16 @@ echo Instalando dependencias críticas...
 pip install torch==2.7.1 transformers==4.40.0 sentence-transformers==2.7.0 --upgrade
 
 :: Iniciar servicios
-start "NLP-QGQA" cmd /k "cd /d "%BASE_DIR%api" && call venv\Scripts\activate && set PYTHONPATH=%BASE_DIR%api && uvicorn microservices.qgqa.microservice:app --host 0.0.0.0 --port 8001 --app-dir %BASE_DIR%api/microservices/qgqa"
+start "NLP-QGQA" cmd /k "cd /d "%BASE_DIR%api" && call .venv\Scripts\activate && set PYTHONPATH=%BASE_DIR%api && uvicorn microservices.qgqa.microservice:app --host 0.0.0.0 --port 8001 --app-dir %BASE_DIR%api/microservices/qgqa"
 timeout /t 5 /nobreak >nul
 
-start "NLP-Summarizer" cmd /k "cd /d "%BASE_DIR%api" && call venv\Scripts\activate && set PYTHONPATH=%BASE_DIR%api && uvicorn microservices.summarizer.microservice:app --host 0.0.0.0 --port 8003 --app-dir %BASE_DIR%api/microservices/summarizer"
+start "NLP-Summarizer" cmd /k "cd /d "%BASE_DIR%api" && call .venv\Scripts\activate && set PYTHONPATH=%BASE_DIR%api && uvicorn microservices.summarizer.microservice:app --host 0.0.0.0 --port 8003 --app-dir %BASE_DIR%api/microservices/summarizer"
 timeout /t 5 /nobreak >nul
 
-start "NLP-Translate" cmd /k "cd /d "%BASE_DIR%api" && call venv\Scripts\activate && set PYTHONPATH=%BASE_DIR%api && uvicorn microservices.translate.microservice:app --host 0.0.0.0 --port 8002 --app-dir %BASE_DIR%api/microservices/translate"
+start "NLP-Translate" cmd /k "cd /d "%BASE_DIR%api" && call .venv\Scripts\activate && set PYTHONPATH=%BASE_DIR%api && uvicorn microservices.translate.microservice:app --host 0.0.0.0 --port 8002 --app-dir %BASE_DIR%api/microservices/translate"
 timeout /t 5 /nobreak >nul
 
-start "NLP-MainAPI" cmd /k "cd /d "%BASE_DIR%api" && call venv\Scripts\activate && set PYTHONPATH=%BASE_DIR%api && uvicorn router:app --port 8000 --reload"
+start "NLP-MainAPI" cmd /k "cd /d "%BASE_DIR%api" && call .venv\Scripts\activate && set PYTHONPATH=%BASE_DIR%api && uvicorn router:app --port 8000 --reload"
 
 :: Frontend Setup
 cd /d "%BASE_DIR%frontend"
@@ -82,7 +82,7 @@ echo Solución recomendada:
 echo 1. Verifica tu conexión a internet
 echo 2. Ejecuta manualmente estos comandos:
 echo    cd /d "%BASE_DIR%api"
-echo    call venv\Scripts\activate
+echo    call .venv\Scripts\activate
 echo    pip install sentence-transformers==2.7.0
 echo    pip install -r requirements.txt
 echo 3. Verifica que el archivo requirements.txt existe

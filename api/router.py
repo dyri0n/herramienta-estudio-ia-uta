@@ -11,7 +11,7 @@ import httpx
 from microservices.qgqa.api_types import QAGenerationRequest, QAValidationRequest, GQA
 
 
-DEFAULT_TIMEOUT = 30.0
+DEFAULT_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 
 
 class GeneratorPromptRequest(BaseModel):
@@ -84,10 +84,10 @@ SUMMARIZER_MODEL_URL = f"http://localhost:{SUMMARIZER_MODEL_PORT}"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global client
-    client = httpx.AsyncClient()
+    global global_client
+    global_client = httpx.AsyncClient()
     yield
-    await client.aclose()
+    await global_client.aclose()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -104,18 +104,14 @@ app.add_middleware(
 
 @app.post("/generator/")
 async def generate(request: GeneratorPromptRequest):
-    MAX_CONCURRENT_TASKS = 5
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+
             # 1. Detectar idioma (simulado)
             # idioma = detectar_idioma(request.context)
-            # idioma = "es"  # Simulación
+            context_en = request.context  # Simulación
 
-            # 2. Traducir a inglés si es necesario (simulado)
-            # context_en = traducir(request.context, target_lang="en")
-            context_en: str = request.context  # Simulación
-
-            # 3. Chunking del texto
+            # 2. Chunking del texto
             try:
                 resp = await client.post(
                     f"{T2T_MODEL_URL}/preprocess-and-chunk",
@@ -124,83 +120,46 @@ async def generate(request: GeneratorPromptRequest):
                 resp.raise_for_status()
                 data = resp.json()
                 chunks = data.get("response", [])
-                # Print chunks as a string (max 40 chars), array length, and isinstance
-                chunks_str = str(chunks)[:40] + \
-                    ("..." if len(str(chunks)) > 40 else "")
-                print(
-                    f"chunks: {chunks_str} | len: {len(chunks)} | is_list: {isinstance(chunks, list)}")
+                print(f"Chunks: {str(chunks)[:40]}{'...' if len(str(chunks)) > 40 else ''} | len: {len(chunks)} | is_list: {isinstance(chunks, list)}")
             except Exception as e:
-                print(f"Error al generar preguntas: {str(e)}")
-                HTTPException(status_code=500, detail=f"Model error: {e}")
-                return
+                print(f"Error al chunkear: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Chunking error: {e}")
 
-            semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
-
-            async def generar_qa_para_chunk(client: httpx.AsyncClient, chunk: str):
-                async with semaphore:
-                    # 4-5-6. Generar preguntas y respuestas y evaluarlas
-                    # para cada chunk llamando al microservicio
-                    try:
-                        req = QAGenerationRequest(context=chunk)
-                        resp = await client.post(
-                            f"{T2T_MODEL_URL}/generate_qa",
-                            json=req.model_dump(mode="json")
-                        )
-                        resp.raise_for_status()
-                        pregunta_generada_data = resp.json().get("response", "")
-                        pregunta_generada: GQA | None = GQA(
-                            **pregunta_generada_data) if pregunta_generada_data else None
-
-                    except Exception as e:
-                        print(f"[ERROR al generar pregunta] {str(e)}")
-                        pregunta_generada = None  # No continuar
-
-                    print(
-                        (f"{(pregunta_generada.context[:10].strip()+("..." if len(pregunta_generada.context) > 10 else ""))} "
-                         f"K: {pregunta_generada.quality}, "
-                         f"Q: {pregunta_generada.question[:20].strip()+("..." if len(pregunta_generada.question) > 20 else "")}, "
-                         f"A: {pregunta_generada.answer[:20].strip()+("..." if len(pregunta_generada.answer) > 20 else "")}")
-                        if pregunta_generada is not None
-                        else "No se generó una pregunta válida")
-
-                    if not pregunta_generada:
-                        return None
-
-                    return pregunta_generada
-
-            all_qas: list[GQA] = []
-
-            # 4–5-6. Llamada de generación de QAs concurrente
-            tareas = [generar_qa_para_chunk(client, chunk) for chunk in chunks]
-            all_qas_raw: list[GQA | None] = await asyncio.gather(*tareas)
-            all_qas: list[GQA] = [qa for qa in all_qas_raw if qa is not None]
-
-            # 7. Filtrar QA inválidos o repetidos, ordenar y
+            # 3. Llamada batch al generador de preguntas/respuestas
             try:
-                req: QAValidationRequest = QAValidationRequest(
-                    gqas=all_qas
+                req = QAGenerationRequest(context=chunks)
+                resp = await client.post(
+                    f"{T2T_MODEL_URL}/generate_qa",
+                    json=req.model_dump(mode="json")
                 )
+                resp.raise_for_status()
+                data = resp.json()
+                all_qas: list[GQA] = [GQA(**qa) for qa in data.get("response", [])]
+                print(f"[GENERATOR] Se generaron {len(all_qas)} QAs")
+            except Exception as e:
+                print(f"Error al generar QAs: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Generación error: {e}")
+
+            # 4. Validación y deduplicación
+            try:
+                req = QAValidationRequest(gqas=all_qas)
                 resp = await client.post(
                     f"{T2T_MODEL_URL}/validate_and_deduplicate",
-                    json=req.model_dump(mode="json"))
+                    json=req.model_dump(mode="json")
+                )
                 resp.raise_for_status()
                 data = resp.json()
                 validated_gqas: list[GQA] = data.get("response", [])
-                print(f"respuesta validacion: {str(validated_gqas)[:50]}")
+                print(f"[VALIDADOR] QAs final: {len(validated_gqas)}")
             except Exception as e:
-                print(f"Error al generar preguntas: {str(e)}")
-                HTTPException(status_code=500, detail=f"Model error: {e}")
-                return
+                print(f"Error en validación: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Validación error: {e}")
 
-            # 8. Traducir de vuelta al idioma original (simulado)
-            # selected_qas = traducir(filtered_qas, target_lang=idioma)
-
-            # 9. Responder al API Gateway
+            # 5. Devolver resultado final (simulando traducción final si aplicara)
             return {"qas": validated_gqas}
 
     except httpx.RequestError:
-        raise HTTPException(
-            status_code=503, detail="T2T Model service unavailable")
+        raise HTTPException(status_code=503, detail="T2T Model service unavailable")
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"Model error: {e}")
 

@@ -15,28 +15,23 @@ def is_valid_answer(answer: str) -> bool:
 
 
 def filter_duplicate_qas(qas: list[GQA], threshold=0.85) -> list[GQA]:
+    if not qas:
+        return []
+
     qa_filter_model = SentenceTransformer("all-MiniLM-L6-v2")
+    questions = [qa.question for qa in qas]
+    embeddings = qa_filter_model.encode(questions, convert_to_tensor=True)
 
-    filtered = []
-    seen_questions = []
+    keep = []
+    seen_idx = []
 
-    for qa in qas:
-        q = qa.question
-        q_embed = qa_filter_model.encode(q, convert_to_tensor=True)
+    for i, emb in enumerate(embeddings):
+        if any(util.cos_sim(emb, embeddings[j]).item() >= threshold for j in seen_idx):
+            continue
+        keep.append(qas[i])
+        seen_idx.append(i)
 
-        is_duplicate = False
-        for seen_q in seen_questions:
-            seen_embed = qa_filter_model.encode(seen_q, convert_to_tensor=True)
-            sim = util.cos_sim(q_embed, seen_embed).item()
-            if sim >= threshold:
-                is_duplicate = True
-                break
-
-        if not is_duplicate:
-            filtered.append(qa)
-            seen_questions.append(q)
-
-    return filtered
+    return keep
 
 
 def evaluar_calidad_qa(id: str, answer: str, question: str) -> float:

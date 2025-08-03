@@ -2,13 +2,11 @@ from transformers.pipelines import pipeline
 import unicodedata
 import re
 
-
 class FlanT5Text2TextGenerator:
 
     def __init__(self, model: str, tokenizer: str, uses_cuda: bool):
         print("Initializating generator")
-        print(
-            f"Pipeline\ntask: text2text-generation\nmodel: {model}\ntokenizer: {tokenizer}\nuses_cuda: {uses_cuda}")
+        print(f"Pipeline\ntask: text2text-generation\nmodel: {model}\ntokenizer: {tokenizer}\nuses_cuda: {uses_cuda}")
 
         self.generator = pipeline(
             "text2text-generation",
@@ -18,34 +16,30 @@ class FlanT5Text2TextGenerator:
         )
 
     def generate_question(self, id: str, context: str) -> str:
-
-        print(
-            f"[QG] [{id}] Contexto {context[:20]}..., lenght: {len(context)}")
+        print(f"[QG] [{id}] Contexto {context[:20]}..., lenght: {len(context)}")
         if not context:
-            raise ValueError(
-                "El contexto proporcionado está vacío o no es válido.")
-        prompt_q = (f"Generate a question based on the following context."
-                    "Don't make a multiple answer question. Only open-ended questions\n\n"
-                    "Context: {context}\n\n"
-                    "Question:")
+            raise ValueError("El contexto proporcionado está vacío o no es válido.")
 
-        outputs = self.generator(
-            prompt_q,
-            do_sample=True,
+        prompt_q = (
+            f"Generate a question based on the following context."
+            "Don't make a multiple answer question. Only open-ended questions\n\n"
+            f"Context: {context}\n\n"
+            "Question:"
         )
+
+        outputs = self.generator(prompt_q, do_sample=True)
 
         if isinstance(outputs, list) and len(outputs) > 0 and "generated_text" in outputs[0]:
             q_text = outputs[0]["generated_text"].strip()
         else:
             raise RuntimeError(f"Formato inesperado de salida: {outputs!r}")
 
-        print(
-            f"[QG] [{id}] Pregunta generada: {q_text[:20]}..., lenght: {len(q_text)}")
+        print(f"[QG] [{id}] Pregunta generada: {q_text[:20]}..., lenght: {len(q_text)}")
         return q_text
 
     def generate_answer(self, id: str, question: str, context: str, max_length: int = 64):
-        print(
-            f"[AG] [{id}] Pregunta: {question[:20]}..., lenght: {len(context)}")
+        print(f"[AG] [{id}] Pregunta: {question[:20]}..., lenght: {len(context)}")
+
         prompt_a = (
             "You are teacher making a test. "
             "Given the context below, answer the question with a clearly and concise.\n\n"
@@ -56,11 +50,9 @@ class FlanT5Text2TextGenerator:
 
         out_a = self.generator(
             prompt_a,
-            # beam search
             num_beams=5,
             early_stopping=True,
             length_penalty=1.2,
-            # sampling
             do_sample=True,
             temperature=0.7,
             top_k=50,
@@ -72,30 +64,50 @@ class FlanT5Text2TextGenerator:
         else:
             raise RuntimeError(f"Formato inesperado de salida: {out_a!r}")
 
-        print(
-            f"[AG] [{id}] Respuesta generada: {a_text[:20]}..., lenght: {len(a_text)}")
+        print(f"[AG] [{id}] Respuesta generada: {a_text[:20]}..., lenght: {len(a_text)}")
         return a_text
 
+    def generate_questions_batch(self, id: str, contexts: list[str]) -> list[str]:
+        prompts = [
+            f"Generate a question based on the following context."
+            "Don't make a multiple answer question. Only open-ended questions\n\n"
+            f"Context: {ctx}\n\n"
+            "Question:"
+            for ctx in contexts
+        ]
+        print(f"[BATCH-QG] [{id}] Procesando {len(prompts)} contextos...")
+        outputs = self.generator(prompts, do_sample=True)
+        return [out["generated_text"].strip() for out in outputs]
+
+    def generate_answers_batch(self, id: str, questions: list[str], contexts: list[str]) -> list[str]:
+        assert len(questions) == len(contexts), "questions y contexts deben tener la misma longitud"
+        prompts = [
+            "You are teacher making a test. "
+            "Given the context below, answer the question with a clearly and concise.\n\n"
+            f"Context: {ctx}\n\n"
+            f"Question: {q}\n\n"
+            "Answer:"
+            for q, ctx in zip(questions, contexts)
+        ]
+        print(f"[BATCH-AG] [{id}] Procesando {len(prompts)} preguntas-contextos...")
+        outputs = self.generator(
+            prompts,
+            num_beams=5,
+            early_stopping=True,
+            length_penalty=1.2,
+            do_sample=True,
+            temperature=0.7,
+            top_k=50,
+            top_p=0.9,
+        )
+        return [out["generated_text"].strip() for out in outputs]
+
     def proccess_input(self, id: str, plain_text: str) -> str:
-        # Normalizar unicode a forma compuesta
         text = unicodedata.normalize("NFKC", plain_text)
-
-        # Eliminar caracteres de control y no imprimibles
         text = re.sub(r'[^\x20-\x7EáéíóúÁÉÍÓÚñÑüÜ]', ' ', text)
-
-        # Reemplazar comillas tipográficas por comillas normales
-        text = text.replace('“', '"').replace(
-            '”', '"').replace('‘', "'").replace('’', "'")
-
-        # Eliminar saltos de línea, tabulaciones y comillas simples/dobles
+        text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
         text = text.replace('\n', ' ').replace('\t', ' ')
         text = text.replace('"', '').replace("'", '')
-
-        # Eliminar otros caracteres que no quieras (ej. paréntesis, corchetes, etc.)
         text = re.sub(r"[{}\[\]<>]", "", text)
-
-        # Eliminar espacios múltiples
         text = re.sub(r'\s+', ' ', text)
-
-        # Trim final
         return text.strip()

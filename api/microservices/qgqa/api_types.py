@@ -6,7 +6,7 @@ class PreprocessAndChunkingRequest(BaseModel):
 
 
 class QAGenerationRequest(BaseModel):
-    context: str
+    context: list[str]  # antes era str
 
 
 class GQA(BaseModel):

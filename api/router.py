@@ -106,26 +106,50 @@ app.add_middleware(
 async def generate(request: GeneratorPromptRequest):
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            textos = [request.context]
 
-            # 1. Detectar idioma (simulado)
-            # idioma = detectar_idioma(request.context)
-            context_en = request.context  # Simulación
+            # 1. Detectar idioma del contexto (batch aunque sea uno solo)
+            try:
+                resp = await client.post(
+                    f"{T2T_MODEL_URL}/detectar_idiomas",
+                    json={"texts": textos}
+                )
+                resp.raise_for_status()
+                idioma = resp.json().get("languages", ["unknown"])[0]
+                print(f"[INFO] Idioma detectado: {idioma}")
+            except Exception as e:
+                print(f"Error detectando idioma: {e}")
+                idioma = "unknown"  # fallback
 
-            # 2. Chunking del texto
+            # 2. Traducir a inglés si es necesario
+            context_en = request.context
+            if idioma != "en":
+                try:
+                    resp = await client.post(
+                        f"{T2T_MODEL_URL}/traducir_batch_a_ingles",
+                        json={"texts": textos}
+                    )
+                    resp.raise_for_status()
+                    context_en = resp.json().get("translations", [request.context])[0]
+                    print(f"[INFO] Traducción completada")
+                except Exception as e:
+                    print(f"Error al traducir: {e}")
+                    raise HTTPException(status_code=500, detail=f"Error en traducción: {e}")
+
+            # 3. Chunking del texto traducido
             try:
                 resp = await client.post(
                     f"{T2T_MODEL_URL}/preprocess-and-chunk",
                     json={"translated_context": context_en}
                 )
                 resp.raise_for_status()
-                data = resp.json()
-                chunks = data.get("response", [])
-                print(f"Chunks: {str(chunks)[:40]}{'...' if len(str(chunks)) > 40 else ''} | len: {len(chunks)} | is_list: {isinstance(chunks, list)}")
+                chunks = resp.json().get("response", [])
+                print(f"Chunks: {str(chunks)[:40]}{'...' if len(str(chunks)) > 40 else ''} | len: {len(chunks)}")
             except Exception as e:
                 print(f"Error al chunkear: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Chunking error: {e}")
 
-            # 3. Llamada batch al generador de preguntas/respuestas
+            # 4. Generación QA por lote
             try:
                 req = QAGenerationRequest(context=chunks)
                 resp = await client.post(
@@ -133,14 +157,13 @@ async def generate(request: GeneratorPromptRequest):
                     json=req.model_dump(mode="json")
                 )
                 resp.raise_for_status()
-                data = resp.json()
-                all_qas: list[GQA] = [GQA(**qa) for qa in data.get("response", [])]
+                all_qas = [GQA(**qa) for qa in resp.json().get("response", [])]
                 print(f"[GENERATOR] Se generaron {len(all_qas)} QAs")
             except Exception as e:
                 print(f"Error al generar QAs: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Generación error: {e}")
 
-            # 4. Validación y deduplicación
+            # 5. Validación y deduplicación
             try:
                 req = QAValidationRequest(gqas=all_qas)
                 resp = await client.post(
@@ -148,18 +171,18 @@ async def generate(request: GeneratorPromptRequest):
                     json=req.model_dump(mode="json")
                 )
                 resp.raise_for_status()
-                data = resp.json()
-                validated_gqas: list[GQA] = data.get("response", [])
+                validated_gqas = resp.json().get("response", [])
                 print(f"[VALIDADOR] QAs final: {len(validated_gqas)}")
             except Exception as e:
                 print(f"Error en validación: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Validación error: {e}")
 
-            # 5. Devolver resultado final (simulando traducción final si aplicara)
+            # 6. Retornar QAs (en inglés o traducirlos si hiciste la traducción original)
             return {"qas": validated_gqas}
 
     except httpx.RequestError:
         raise HTTPException(status_code=503, detail="T2T Model service unavailable")
+
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"Model error: {e}")
 

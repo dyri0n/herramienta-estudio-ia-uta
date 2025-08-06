@@ -5,8 +5,8 @@ from ..models.translate import TranslateModel
 import torch
 
 
-class TextRequest(BaseModel):
-    text: str
+class BatchTextRequest(BaseModel):
+    texts: list[str]
 
 
 model_instance: dict[str, dict[str, TranslateModel | None] | None] = {
@@ -26,39 +26,32 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-@app.post("/detectar_idioma")
-def detect_language(request: TextRequest):
-    return {"language": TranslateModel.detect_language(request.text)}
+@app.post("/detectar_idiomas")
+def detect_languages(request: BatchTextRequest):
+    idiomas = TranslateModel.detect_language_batch(request.texts)
+    return {"languages": idiomas}
 
 
-@app.post("/traducir_a_ingles")
-def translate_to_english(request: TextRequest):
-    idioma_texto = TranslateModel.detect_language(request.text)
-    if idioma_texto == "en":
-        return {"translation": request.text}
-    
-    translators = model_instance.get("translator")
-    if (translators is None):
-        raise 
-    english_translator = translators.get("to_en")
-    
-    
-    if english_translator is None:
-        raise HTTPException(status_code=500, detail="Modelo no cargado")
-    
-    else:
-        return {"translation": english_translator.translate(request.text)}
+@app.post("/traducir_batch_a_ingles")
+def translate_batch_to_english(request: BatchTextRequest):
+    idiomas = TranslateModel.detect_language_batch(request.texts)
+    textos = request.texts
+
+    textos_a_traducir = [
+        texto for texto, lang in zip(textos, idiomas) if lang != "en"
+    ]
+    indices = [i for i, lang in enumerate(idiomas) if lang != "en"]
+
+    traducciones = model_instance["translator"]["to_en"].translate(textos_a_traducir)
+
+    resultado = textos.copy()
+    for idx, trans in zip(indices, traducciones):
+        resultado[idx] = trans
+
+    return {"translations": resultado}
 
 
-@app.post("/traducir_a_espanol")
-def translate_to_spanish(request: TextRequest):
-    translators = model_instance.get("translator")
-    if (translators is None):
-        raise 
-    spanish_translator = translators.get("to_es")
-    
-    
-    if spanish_translator is None:
-        raise HTTPException(status_code=500, detail="Modelo no cargado")
-    
-    return {"translation": spanish_translator.translate(request.text)}
+@app.post("/traducir_batch_a_espanol")
+def translate_batch_to_spanish(request: BatchTextRequest):
+    traducciones = model_instance["translator"]["to_es"].translate(request.texts)
+    return {"translations": traducciones}

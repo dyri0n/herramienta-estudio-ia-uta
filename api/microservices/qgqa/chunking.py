@@ -1,5 +1,5 @@
 import re
-from qgqa.constants import DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP_PERCENTAGE
+from constants import DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP_PERCENTAGE
 
 
 class TokenizerWrapper:

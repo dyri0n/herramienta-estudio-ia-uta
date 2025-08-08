@@ -1,16 +1,17 @@
+from api_types import GQA, PreprocessAndChunkingRequest, QAGenerationRequest, QAValidationRequest
+from validation import filter_duplicate_qas, is_valid_answer
+from model import FlanT5Text2TextGenerator
+from chunking import TokenizerWrapper, chunk_by_sentences
+from constants import MODEL_CONFIG, MODEL_NAME
+
+from ..models.helpers.quality_evaluator import QualityEvaluator
+from ..models.helpers.chunk_translator import ChunkTranslator
+
 import uuid
+import torch
 from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
-from qgqa.api_types import GQA, PreprocessAndChunkingRequest, QAGenerationRequest, QAValidationRequest
-from qgqa.validation import filter_duplicate_qas, is_valid_answer
-from models.FlanT5Text2TextGenerator import FlanT5Text2TextGenerator
-from qgqa.chunking import TokenizerWrapper, chunk_by_sentences
-
-from qgqa.constants import MODEL_CONFIG, MODEL_NAME
-import torch
 from transformers import AutoTokenizer
-from models.helpers.quality_evaluator import QualityEvaluator
-from models.helpers.chunk_translator import ChunkTranslator
 
 model: dict[str, FlanT5Text2TextGenerator | None] = {
     "generator": None

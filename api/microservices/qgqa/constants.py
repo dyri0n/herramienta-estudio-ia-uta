@@ -33,7 +33,7 @@ MODEL_CONFIG = {
 
 
 # Cambia a SMALL, BASE o XL si es necesario
-MODEL_NAME = FlanT5Model.LARGE.value
+MODEL_NAME = FlanT5Model.BASE.value
 
 
 DEFAULT_CHUNK_SIZE = MODEL_CONFIG[MODEL_NAME]["max_tokens"]

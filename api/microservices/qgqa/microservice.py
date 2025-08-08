@@ -1,19 +1,21 @@
 import uuid
 from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
-from ..models.FlanT5Text2TextGenerator import FlanT5Text2TextGenerator
-from validation import filter_duplicate_qas, is_valid_answer, evaluar_calidad_qa
-from chunking import TokenizerWrapper, chunk_by_sentences
-from api_types import GQA, PreprocessAndChunkingRequest, QAGenerationRequest, QAValidationRequest
-from constants import MODEL_CONFIG, MODEL_NAME
+from qgqa.api_types import GQA, PreprocessAndChunkingRequest, QAGenerationRequest, QAValidationRequest
+from qgqa.validation import filter_duplicate_qas, is_valid_answer
+from models.FlanT5Text2TextGenerator import FlanT5Text2TextGenerator
+from qgqa.chunking import TokenizerWrapper, chunk_by_sentences
+
+from qgqa.constants import MODEL_CONFIG, MODEL_NAME
 import torch
 from transformers import AutoTokenizer
-
+from models.helpers.quality_evaluator import QualityEvaluator
 
 model: dict[str, FlanT5Text2TextGenerator | None] = {
     "generator": None
 }
-
+#EVALUADOR DE CALIDAD
+qe = QualityEvaluator()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -77,16 +79,16 @@ def generate_text(request: QAGenerationRequest):
         if not a:
             gqas.append(GQA(context=ctx, question=q, answer=a, quality=0))
             continue
-        quality = evaluar_calidad_qa(process_code, q, a)
-        gqa = GQA(
-            context=ctx,
-            question=q,
-            answer=a,
-            quality=quality if quality else 0
-        )
-        gqas.append(gqa)
-        print(
-            f"[✅] Generated QA: {gqa.quality} ({gqa.context[:10]}) ({gqa.question[:10]}) ({gqa.answer[:10]})")
+        quality = qe.get_quality_of(ctx, q, a)
+        if quality>0.3:
+            gqa = GQA(
+                context=ctx,
+                question=q,
+                answer=a,
+                quality=quality if quality else 0
+            )
+            gqas.append(gqa)
+            print(f"[✅] Generated QA: {gqa.quality} ({gqa.context[:10]}) ({gqa.question[:10]}) ({gqa.answer[:10]})")
 
     return {"response": gqas}
 

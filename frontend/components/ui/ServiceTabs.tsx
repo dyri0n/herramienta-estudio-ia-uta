@@ -22,7 +22,7 @@ const services = [
     endpoint: "/summarizer/traducir/",
     requestBody: (content: string) => ({ text: content })
   },
-  {
+  /*{
     id: "translation",
     name: "Traducción EN>ES",
     description: "Traduce el contenido del inglés al español",
@@ -30,7 +30,7 @@ const services = [
     color: "text-purple-600",
     endpoint: "/translator/traducir_a_espanol/",
     requestBody: (content: string) => ({ text: content })
-  },
+  },*/
 ] as const;
 
 export default function ServiceTabs() {
@@ -122,13 +122,13 @@ export default function ServiceTabs() {
           wordCount: result.wordCount || 0
         };
         break;
-      case "translation":
+      /*case "translation":
         resultToStore = {
           originalText: state.currentDocument.content,
           translatedText: result.translation || result,
           confidence: result.confidence || 0.9 // Valor por defecto si no viene
         };
-        break;
+        break;*/
       default:
         resultToStore = result;
     }

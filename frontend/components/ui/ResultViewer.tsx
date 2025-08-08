@@ -230,7 +230,7 @@ export default function ResultViewer() {
               {activeResult.result?.summary || "No hay resumen disponible"}
             </p>
             
-            {activeResult.result?.keywords && (
+            {/*{activeResult.result?.keywords && (
               <div className="mt-4">
                 <h4 className="font-medium text-gray-900 mb-2">Palabras clave:</h4>
                 <div className="flex flex-wrap gap-2">
@@ -241,7 +241,7 @@ export default function ResultViewer() {
                   ))}
                 </div>
               </div>
-            )}
+            )}*/}
           </div>
         ) : activeResult.service === "translation" ? (
           <div className="space-y-4">
@@ -284,7 +284,7 @@ export default function ResultViewer() {
         )}
       </div>
       
-      <details className="mt-4 border-t pt-4">
+      {/*<details className="mt-4 border-t pt-4">
         <summary className="font-medium text-gray-700 cursor-pointer flex items-center">
           <Bug className="h-4 w-4 mr-2" /> Información de Depuración
         </summary>
@@ -293,7 +293,7 @@ export default function ResultViewer() {
             <div key={index} className="mb-1">{line}</div>
           ))}
         </div>
-      </details>
+      </details>*/}
     </div>
   )
 }

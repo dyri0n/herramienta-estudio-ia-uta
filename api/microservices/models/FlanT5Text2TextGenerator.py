@@ -42,7 +42,7 @@ class FlanT5Text2TextGenerator:
 
         prompt_a = (
             "You are teacher making a test. "
-            "Given the context below, answer the question with a clearly and concise.\n\n"
+            "Given the context below, answer the question.\n\n"
             f"Context: {context}\n\n"
             f"Question: {question}\n\n"
             "Answer:"
@@ -83,7 +83,7 @@ class FlanT5Text2TextGenerator:
         assert len(questions) == len(contexts), "questions y contexts deben tener la misma longitud"
         prompts = [
             "You are teacher making a test. "
-            "Given the context below, answer the question with a clearly and concise.\n\n"
+            "Given the context below, answer the question.\n\n"
             f"Context: {ctx}\n\n"
             f"Question: {q}\n\n"
             "Answer:"

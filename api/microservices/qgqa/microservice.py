@@ -10,12 +10,14 @@ from qgqa.constants import MODEL_CONFIG, MODEL_NAME
 import torch
 from transformers import AutoTokenizer
 from models.helpers.quality_evaluator import QualityEvaluator
+from models.helpers.chunk_translator import ChunkTranslator
 
 model: dict[str, FlanT5Text2TextGenerator | None] = {
     "generator": None
 }
 #EVALUADOR DE CALIDAD
 qe = QualityEvaluator()
+ct = ChunkTranslator()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -47,50 +49,70 @@ def preprocess_and_chunk_text(request: PreprocessAndChunkingRequest):
 
 @app.post("/generate_qa")
 def generate_text(request: QAGenerationRequest):
+    import uuid
     process_code = uuid.uuid4().hex[:5]
     generator = model.get("generator")
 
     if generator is None:
         return {"error": "Model not loaded"}
 
-    contexts = [generator.proccess_input(
-        process_code, c) for c in request.context]
+    original_contexts = request.context
+    detected_lang = ct.detect_language(original_contexts[0])  # Asume todos son del mismo idioma
+
+    # Si el idioma es español, traducir al inglés antes de procesar
+    if detected_lang == "es":
+        print("[🌐] Translating input contexts from Spanish to English")
+        translated_contexts = [
+            ct.translate(ctx, from_lang="es", to_lang="en")
+            for ctx in original_contexts
+        ]
+    else:
+        translated_contexts = original_contexts
+
+    contexts = [generator.proccess_input(process_code, c) for c in translated_contexts]
     contexts = [c for c in contexts if c]
 
     if not contexts:
         raise HTTPException(
-            status_code=410, detail="Todos los contextos están vacíos")
+            status_code=410, detail="All contexts are empty after preprocessing.")
 
     try:
         questions = generator.generate_questions_batch(process_code, contexts)
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error generando preguntas: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating questions: {str(e)}")
 
     try:
-        answers = generator.generate_answers_batch(
-            process_code, questions, contexts)
+        answers = generator.generate_answers_batch(process_code, questions, contexts)
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error generando respuestas: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating answers: {str(e)}")
 
     gqas = []
-    for ctx, q, a in zip(contexts, questions, answers):
+    for original_ctx, ctx, q, a in zip(original_contexts, contexts, questions, answers):
         if not a:
-            gqas.append(GQA(context=ctx, question=q, answer=a, quality=0))
+            gqas.append(GQA(context=original_ctx, question=q, answer=a, quality=0))
             continue
-        quality = qe.get_quality_of(ctx, q, a)
-        if quality>0.3:
+
+        # Evalúa la calidad en INGLÉS
+
+        quality = qe.get_quality_of(original_ctx, q, a)
+
+        # Si el idioma original era español, traducir pregunta y respuesta de vuelta
+        if detected_lang == "es":
+            q = ct.translate(q, from_lang="en", to_lang="es")
+            a = ct.translate(a, from_lang="en", to_lang="es")
+
+        if quality > 0.3:
             gqa = GQA(
-                context=ctx,
+                context=original_ctx,
                 question=q,
                 answer=a,
-                quality=quality if quality else 0
+                quality=quality
             )
             gqas.append(gqa)
-            print(f"[✅] Generated QA: {gqa.quality} ({gqa.context[:10]}) ({gqa.question[:10]}) ({gqa.answer[:10]})")
+            print(f"[✅] Generated QA: {quality} ({original_ctx[:10]}) ({q[:10]}) ({a[:10]})")
 
     return {"response": gqas}
+
 
 
 @app.post("/validate_and_deduplicate")

@@ -35,11 +35,13 @@ def filter_duplicate_qas(qas: list[GQA], threshold=0.85) -> list[GQA]:
 
     return keep
 
-
+"""
+ANTIGUO
+Devuelve una puntuación de calidad entre 0.0 y 1.0.
 def evaluar_calidad_qa(id: str, answer: str, question: str) -> float:
-    """
-    Devuelve una puntuación de calidad entre 0.0 y 1.0.
-    """
+
+    
+    
     score = 0
     total = 4  # Número total de criterios
     tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
@@ -64,3 +66,5 @@ def evaluar_calidad_qa(id: str, answer: str, question: str) -> float:
         score += 1
 
     return round(score / total, 2)  # Devuelve un float entre 0.0 y 1.0
+
+"""
